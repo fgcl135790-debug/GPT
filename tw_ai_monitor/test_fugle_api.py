@@ -1,41 +1,40 @@
 import requests
 import json
 
-API_KEY = "你的API_KEY".strip()
-SYMBOL = "2330"
+API_KEY = "你的API_KEY"
+
+def clean_key(key):
+    return str(key).strip().encode("utf-8").decode("utf-8")
 
 def test_api():
 
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{SYMBOL}"
+    api_key = clean_key(API_KEY)
+    symbol = "2330"
+
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
 
     headers = {
-        "X-API-KEY": API_KEY.strip()   # 🔥 防止 hidden space
+        "X-API-KEY": api_key
     }
 
-    res = requests.get(url, headers=headers, timeout=10)
-
-    print("\n====================")
-    print("STATUS:", res.status_code)
-    print("====================")
-
-    print("\nRAW RESPONSE:")
-    print(res.text[:1000])
+    print("API KEY repr:", repr(api_key))
+    print("API KEY length:", len(api_key))
 
     try:
-        data = res.json()
+        res = requests.get(url, headers=headers, timeout=10)
 
-        print("\n====================")
-        print("JSON TYPE:", type(data))
-        print("====================")
+        print("\nSTATUS:", res.status_code)
+        print("\nRAW:", res.text[:500])
 
-        print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
-
-        # 🔥 幫你快速看結構
-        if isinstance(data, dict):
-            print("\nTOP KEYS:", list(data.keys()))
+        try:
+            data = res.json()
+            print("\nJSON KEYS:", list(data.keys()) if isinstance(data, dict) else type(data))
+            print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
+        except Exception as e:
+            print("JSON ERROR:", e)
 
     except Exception as e:
-        print("\nJSON PARSE ERROR:", e)
+        print("REQUEST ERROR:", e)
 
 
 if __name__ == "__main__":
