@@ -1,40 +1,67 @@
 import requests
 import json
 
-API_KEY = "你的API_KEY"
+# =========================
+# 🔥 你只要改這一行
+# =========================
+API_KEY = "請貼你的Fugle API KEY"
+
+SYMBOL = "2330"
+
 
 def clean_key(key):
-    return str(key).strip().encode("utf-8").decode("utf-8")
+    if key is None:
+        return ""
+    return str(key).strip()
+
 
 def test_api():
 
     api_key = clean_key(API_KEY)
-    symbol = "2330"
 
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
+    # =========================
+    # 🧨 防呆：API KEY 空值直接停止
+    # =========================
+    if not api_key:
+        print("❌ API KEY 是空的，請先填入")
+        return
+
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{SYMBOL}"
 
     headers = {
         "X-API-KEY": api_key
     }
 
-    print("API KEY repr:", repr(api_key))
-    print("API KEY length:", len(api_key))
+    print("🔑 API KEY repr:", repr(api_key))
+    print("🔑 API KEY length:", len(api_key))
 
     try:
         res = requests.get(url, headers=headers, timeout=10)
 
-        print("\nSTATUS:", res.status_code)
-        print("\nRAW:", res.text[:500])
+        print("\n====================")
+        print("STATUS:", res.status_code)
+        print("====================")
+
+        print("\nRAW RESPONSE:")
+        print(res.text[:800])
 
         try:
             data = res.json()
-            print("\nJSON KEYS:", list(data.keys()) if isinstance(data, dict) else type(data))
+
+            print("\n====================")
+            print("JSON TYPE:", type(data))
+            print("====================")
+
             print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
+
+            if isinstance(data, dict):
+                print("\nTOP KEYS:", list(data.keys()))
+
         except Exception as e:
-            print("JSON ERROR:", e)
+            print("❌ JSON PARSE ERROR:", e)
 
     except Exception as e:
-        print("REQUEST ERROR:", e)
+        print("❌ REQUEST ERROR:", e)
 
 
 if __name__ == "__main__":
