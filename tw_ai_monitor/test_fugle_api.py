@@ -2,18 +2,20 @@ import requests
 import json
 import re
 
-API_KEY = "你的Fugle API KEY"
+API_KEY = "你的FUGLE_KEY"
 SYMBOL = "2330"
 
 
 def clean_key(key: str) -> str:
-    """
-    只保留 ASCII + 去掉換行/空白
-    避免 urllib3 latin-1 encode crash
-    """
+    # 1. 去掉空白/換行
     key = str(key).strip()
-    key = key.replace("\n", "").replace("\r", "").replace(" ", "")
-    key = re.sub(r"[^\x20-\x7E]", "", key)  # 只留可見 ASCII
+
+    # 2. 去掉所有不可見字元
+    key = key.replace("\n", "").replace("\r", "").replace("\t", "")
+
+    # 3. 只保留 ASCII（最重要）
+    key = re.sub(r"[^\x20-\x7E]", "", key)
+
     return key
 
 
@@ -26,29 +28,20 @@ def test_api():
         "X-API-KEY": api_key
     }
 
-    print("===== DEBUG INFO =====")
-    print("API KEY repr:", repr(api_key))
-    print("API KEY length:", len(api_key))
-    print("URL:", url)
-    print("======================")
+    print("KEY repr:", repr(api_key))
+    print("KEY len:", len(api_key))
 
     try:
         res = requests.get(url, headers=headers, timeout=10)
 
         print("STATUS:", res.status_code)
-        print("RAW TEXT:", res.text[:1000])
+        print("RAW:", res.text[:1000])
 
         try:
             data = res.json()
-            print("\nJSON TYPE:", type(data))
-
-            if isinstance(data, dict):
-                print("JSON KEYS:", list(data.keys()))
-
-            print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
-
+            print("JSON:", json.dumps(data, indent=2, ensure_ascii=False)[:2000])
         except Exception as e:
-            print("JSON PARSE ERROR:", e)
+            print("JSON ERROR:", e)
 
     except Exception as e:
         print("REQUEST ERROR:", e)
