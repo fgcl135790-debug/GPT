@@ -1,76 +1,100 @@
 import streamlit as st
 import requests
-import pandas as pd
 
-st.set_page_config(page_title="Fugle Debug Tool")
+st.set_page_config(page_title="TW AI Monitor v3 Stable", layout="wide")
 
-st.title("Fugle API Debug Console")
+st.title("TW AI Monitor v3 Stable")
 
 # =========================
 # INPUT
 # =========================
 api_key = st.text_input("Fugle API Key", type="password")
-symbol = st.text_input("Stock Symbol", value="2330")
+symbol = st.text_input("股票代碼", value="2330")
 
 # =========================
 # CLEAN KEY
 # =========================
 def clean_key(key):
-    if not key:
-        return ""
     return str(key).strip().replace("\n", "").replace("\r", "").replace(" ", "")
 
 # =========================
-# FETCH API
+# API CALL
 # =========================
-def fetch_data(api_key, symbol):
+def get_snapshot(api_key, symbol):
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
 
     headers = {
         "X-API-KEY": clean_key(api_key)
     }
 
-    st.write("DEBUG URL:", url)
-    st.write("DEBUG KEY repr:", repr(headers["X-API-KEY"]))
-
     try:
         res = requests.get(url, headers=headers, timeout=10)
-
-        st.write("STATUS CODE:", res.status_code)
-        st.write("RAW TEXT (first 500 chars):")
-        st.code(res.text[:500])
-
-        try:
-            data = res.json()
-        except Exception as e:
-            st.error("JSON parse failed")
-            st.write(e)
-            return None
+        data = res.json()
 
         return data
 
     except Exception as e:
-        st.error("Request failed")
+        st.error("API request failed")
         st.write(e)
         return None
 
 # =========================
 # MAIN
 # =========================
-if st.button("TEST API"):
+if st.button("開始監控"):
+
     if not api_key:
-        st.warning("Please input API key")
+        st.warning("請輸入 API Key")
         st.stop()
 
-    data = fetch_data(api_key, symbol)
+    data = get_snapshot(api_key, symbol)
 
-    if data is None:
-        st.error("No data returned")
+    if not data:
+        st.error("沒有回傳資料")
         st.stop()
 
-    st.subheader("JSON KEYS")
-    if isinstance(data, dict):
-        st.write(list(data.keys()))
+    # =========================
+    # PRICE
+    # =========================
+    price = data.get("lastPrice")
+    change = data.get("change")
+    change_percent = data.get("changePercent")
 
-    st.subheader("RAW JSON")
-    st.json(data)
+    st.subheader(f"{data.get('name')} ({symbol})")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("價格", price)
+
+    with col2:
+        st.metric("漲跌", change)
+
+    with col3:
+        st.metric("漲跌幅", change_percent)
+
+    # =========================
+    # ORDER BOOK
+    # =========================
+    st.subheader("五檔報價")
+
+    bids = data.get("bids", [])
+    asks = data.get("asks", [])
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.write("買方")
+        for b in bids:
+            st.write(f"{b['price']} | {b['size']}")
+
+    with col2:
+        st.write("賣方")
+        for a in asks:
+            st.write(f"{a['price']} | {a['size']}")
+
+    # =========================
+    # RAW DATA
+    # =========================
+    with st.expander("RAW JSON"):
+        st.json(data)
