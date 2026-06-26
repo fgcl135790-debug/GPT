@@ -1,172 +1,154 @@
 import streamlit as st
 import requests
+import pandas as pd
+import time
 
-# ======================
-# CONFIG
-# ======================
-st.set_page_config(
-    page_title="台股 AI 即時監控 V7.3",
-    layout="wide"
-)
+st.set_page_config(page_title="台股 AI V8 交易決策系統", layout="wide")
 
-# ======================
+# =========================
 # SIDEBAR
-# ======================
+# =========================
 st.sidebar.title("⚙️ 控制台")
 
 api_key = st.sidebar.text_input("API KEY", type="password")
 stock = st.sidebar.text_input("股票代碼", "2330")
-refresh = st.sidebar.slider("更新秒數", 1, 10, 2)
+refresh = st.sidebar.slider("更新頻率(秒)", 1, 10, 2)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🧪 Debug")
-st.sidebar.write("API:", bool(api_key))
-st.sidebar.write("Stock:", stock)
+st.sidebar.write("📡 更新頻率:", refresh, "秒")
 
-# ======================
-# API（🔥已修正 Fugle schema）
-# ======================
+# =========================
+# API
+# =========================
 def get_quote(stock, api_key):
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{stock}"
+    r = requests.get(url, headers={"X-API-KEY": api_key})
+    d = r.json()
 
-    try:
-        r = requests.get(
-            url,
-            headers={"X-API-KEY": api_key},
-            timeout=5
-        )
+    return {
+        "name": d.get("name", stock),
+        "price": d.get("closePrice") or d.get("lastPrice", 0),
+        "vwap": d.get("avgPrice", 0),
+        "high": d.get("highPrice", 0),
+        "low": d.get("lowPrice", 0),
+        "change": d.get("change", 0),
+        "bids": d.get("bids", []),
+        "asks": d.get("asks", [])
+    }
 
-        j = r.json()
+# =========================
+# V8 TRADING ENGINE
+# =========================
+def v8_engine(d):
+    price = d["price"]
+    vwap = d["vwap"]
 
-        # 🔥 Fugle 新版：root 就是資料
-        d = j
+    bid_vol = sum([x.get("size", 0) for x in d["bids"][:3]])
+    ask_vol = sum([x.get("size", 0) for x in d["asks"][:3]])
 
-        return {
-            "name": d.get("name", "-"),
-            "symbol": d.get("symbol", stock),
-            "price": d.get("closePrice") or d.get("lastPrice", 0),
-            "change": d.get("change", 0),
-            "changePercent": d.get("changePercent", 0),
-            "vwap": d.get("avgPrice", 0),
-            "volume": d.get("tradeVolume", 0),
-            "high": d.get("highPrice", 0),
-            "low": d.get("lowPrice", 0),
-            "open": d.get("openPrice", 0),
-            "bids": d.get("bids", []),
-            "asks": d.get("asks", []),
-        }
+    imbalance = (bid_vol - ask_vol) / max(1, (bid_vol + ask_vol))
 
-    except Exception as e:
-        return {"error": str(e)}
+    # ================= VWAP LOGIC =================
+    vwap_long = price > vwap and imbalance > 0.1
+    vwap_short = price < vwap and imbalance < -0.1
 
-# ======================
-# AI 判斷（VWAP + momentum）
-# ======================
-def ai_signal(data):
-    score = 50
+    # ================= BREAKOUT TRAP =================
+    fake_break_high = price >= d["high"] and d["change"] < 0
+    fake_break_low = price <= d["low"] and d["change"] > 0
 
-    if not data:
-        return "⚖️ 無資料", 50
+    # ================= SIGNAL =================
+    if vwap_long and not fake_break_high:
+        signal = "📈 多方進場區"
+        reason = "VWAP站上 + 買盤優勢"
+        action = "回踩做多"
+        stop = vwap
 
-    if data["price"] > data["vwap"]:
-        score += 15
+    elif vwap_short and not fake_break_low:
+        signal = "📉 空方進場區"
+        reason = "跌破VWAP + 賣壓主導"
+        action = "反彈放空"
+        stop = vwap
+
     else:
-        score -= 15
+        signal = "⚖️ 觀望區"
+        reason = "多空拉鋸 / 無明確趨勢"
+        action = "等待訊號"
+        stop = None
 
-    if data["change"] > 0:
-        score += 10
+    # ================= FAKE BREAK WARNING =================
+    if fake_break_high or fake_break_low:
+        warning = "⚠️ 假突破警告（流動性陷阱可能）"
     else:
-        score -= 10
+        warning = "✔ 無假突破"
 
-    spread = len(data["bids"]) - len(data["asks"])
-    if spread > 0:
-        score += 5
-    else:
-        score -= 5
+    return signal, reason, action, stop, warning, imbalance
 
-    if score >= 65:
-        return "📈 偏多（可做多）", score
-    elif score <= 35:
-        return "📉 偏空（可做空）", score
-    else:
-        return "⚖️ 盤整（觀望）", score
+# =========================
+# UI
+# =========================
+st.title(f"⚡ {stock} AI 當沖決策系統 V8")
 
-# ======================
-# ALWAYS RENDER UI
-# ======================
-st.title("⚡ 台股 AI 即時監控 V7.3（穩定版）")
+if not api_key:
+    st.warning("請輸入 API KEY")
+    st.stop()
 
-# ======================
-# FETCH DATA（安全模式）
-# ======================
-data = None
-error = None
+d = get_quote(stock, api_key)
 
-if api_key and stock:
-    result = get_quote(stock, api_key)
+# =========================
+# TOP METRICS
+# =========================
+col1, col2, col3, col4 = st.columns(4)
 
-    if "error" in result:
-        error = result["error"]
-    else:
-        data = result
-else:
-    st.warning("請輸入 API KEY + 股票代碼")
+col1.metric("現價", d["price"])
+col2.metric("VWAP", d["vwap"])
+col3.metric("高點", d["high"])
+col4.metric("低點", d["low"])
 
-# ======================
-# ERROR BLOCK（不會中斷 UI）
-# ======================
-if error:
-    st.error("API 錯誤")
-    st.json(error)
+# =========================
+# ENGINE RESULT
+# =========================
+signal, reason, action, stop, warning, imbalance = v8_engine(d)
 
-# ======================
-# MAIN DASHBOARD
-# ======================
-if data:
+st.markdown("## 🤖 V8 交易決策")
 
-    signal, score = ai_signal(data)
+st.success(signal)
+st.write("📌 原因：", reason)
+st.write("🎯 策略：", action)
+st.write("🛑 停損：", stop)
+st.warning(warning)
 
-    col1, col2, col3 = st.columns(3)
+# =========================
+# ORDER BOOK
+# =========================
+colA, colB = st.columns(2)
 
-    with col1:
-        st.metric("現價", data["price"])
-        st.metric("漲跌", data["change"])
+with colA:
+    st.markdown("### 🟢 買盤")
+    for b in d["bids"][:5]:
+        st.write(f"{b.get('price')} | {b.get('size')}")
 
-    with col2:
-        st.metric("VWAP", data["vwap"])
-        st.metric("成交量", data["volume"])
+with colB:
+    st.markdown("### 🔴 賣盤")
+    for a in d["asks"][:5]:
+        st.write(f"{a.get('price')} | {a.get('size')}")
 
-    with col3:
-        st.metric("高點", data["high"])
-        st.metric("低點", data["low"])
+# =========================
+# IMBALANCE BAR
+# =========================
+st.markdown("## 📊 多空力道")
 
-    st.markdown("## 🤖 AI 當沖判斷")
-    st.success(f"{signal} ｜ Score：{score}")
+st.progress(min(1.0, max(0.0, (imbalance + 1) / 2)))
+st.write("Order Book Imbalance:", round(imbalance, 3))
 
-    # ======================
-    # order book（簡化版）
-    # ======================
-    st.markdown("## 📊 買賣盤")
+# =========================
+# PRICE HISTORY
+# =========================
+if "hist" not in st.session_state:
+    st.session_state.hist = []
 
-    colA, colB = st.columns(2)
+st.session_state.hist.append(d["price"])
 
-    with colA:
-        st.markdown("### 🟢 買方")
-        for b in data["bids"][:5]:
-            st.write(f"{b.get('price')} | {b.get('size')}")
+if len(st.session_state.hist) > 60:
+    st.session_state.hist.pop(0)
 
-    with colB:
-        st.markdown("### 🔴 賣方")
-        for a in data["asks"][:5]:
-            st.write(f"{a.get('price')} | {a.get('size')}")
-
-else:
-    st.info("等待資料中...")
-
-# ======================
-# FOOTER DEBUG
-# ======================
-st.sidebar.markdown("---")
-st.sidebar.write("STATE")
-st.sidebar.write("data:", data is not None)
-st.sidebar.write("error:", error is not None)
+st.line_chart(pd.DataFrame(st.session_state.hist, columns=["price"]))
