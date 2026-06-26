@@ -56,8 +56,24 @@ def normalize_fugle(resp):
 def get_quote(stock, api_key):
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{stock}"
     r = requests.get(url, headers={"X-API-KEY": api_key})
-    return normalize_fugle(r.json())
 
+    raw = r.json()
+
+    # 👇 debug（一定要先開）
+    st.write("DEBUG RAW:", raw)
+
+    data = raw.get("data", {})
+    quote = data.get("quote", {})
+
+    return {
+        "name": data.get("name", stock),
+        "price": quote.get("closePrice", 0),
+        "vwap": quote.get("avgPrice", 0),
+        "high": quote.get("highPrice", 0),
+        "low": quote.get("lowPrice", 0),
+        "bids": quote.get("bids", []),
+        "asks": quote.get("asks", [])
+    }
 
 # =========================
 # 主力偵測 V9
