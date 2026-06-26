@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -11,57 +13,48 @@ from charts import ChartBuilder
 from exporters import Exporter
 from streamlit_autorefresh import st_autorefresh
 
+
 # =========================
-# V4.6 券商級設定
+# V4.6 券商級 UI
 # =========================
 
 st.set_page_config(
     page_title="V4.6 券商級主力系統",
-    page_icon="🏦",
+    page_icon="📊",
     layout="wide"
 )
 
 st.markdown("""
 <style>
-.block-container{
-    padding:0.4rem 0.8rem;
+html, body, [class*="css"]  {
     font-size: 13px;
 }
-
-/* 台股風格：紅漲綠跌 */
-.positive { color:#ff4d4f; }
-.negative { color:#00c853; }
-
-/* 壓縮UI */
-h1 { font-size: 22px !important; }
-h2 { font-size: 18px !important; }
-h3 { font-size: 15px !important; }
+.block-container{
+    padding: 0.5rem 1rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
+
 now = datetime.now(ZoneInfo("Asia/Taipei"))
 
-def reset_state():
-    st.session_state.price_history = []
-    st.session_state.volume_history = []
-    st.session_state.big_order_log = []
-    st.session_state.tick = 0
-    st.session_state.last_symbol = None
-    st.session_state.last_trade_serial = None
+def init_state():
+    defaults = {
+        "price_history": [],
+        "volume_history": [],
+        "big_order_log": [],
+        "tick": 0,
+        "last_trade": None,
+        "current_stock": None
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-
-for k in [
-    "price_history",
-    "volume_history",
-    "big_order_log",
-    "tick",
-    "last_symbol",
-    "last_trade_serial"
-]:
-    if k not in st.session_state:
-        st.session_state[k] = [] if "history" in k or "log" in k else 0
+init_state()
 
 with st.sidebar:
+
     st.title("⚙️ V4.6 券商控制中心")
 
     data_source = st.radio("資料來源", ["真實盤", "情境模擬"])
@@ -70,20 +63,36 @@ with st.sidebar:
 
     api_key = st.text_input("API Key", type="password")
 
-    sim_mode = st.selectbox("模擬", ["一般", "軋空", "出貨", "吸籌"])
+    sim_mode = st.selectbox(
+        "模擬模式",
+        ["一般波動", "軋空", "出貨", "吸籌", "崩盤"]
+    )
 
-    refresh_sec = st.slider("更新秒數", 1, 10, 2)
+    refresh_sec = st.slider("刷新秒數", 1, 10, 2)
 
-    if st.button("🔄 換股 / 重置"):
-        reset_state()
-        st.rerun()
+    auto_threshold = st.checkbox("自動大戶偵測", True)
 
-st_autorefresh(interval=refresh_sec * 1000, key="v46")
+    sim_minutes = st.slider("模擬時間", 2, 60, 10)
+
+st_autorefresh(interval=refresh_sec * 1000, key="refresh")
+
+
+# =========================
+# 換股自動清空（你 bug 的核心修復）
+# =========================
+
+if st.session_state.current_stock != stock_code:
+    st.session_state.price_history = []
+    st.session_state.volume_history = []
+    st.session_state.big_order_log = []
+    st.session_state.tick = 0
+    st.session_state.current_stock = stock_code
+
 
 try:
     if data_source == "真實盤":
         if not api_key:
-            st.warning("請輸入API")
+            st.warning("請輸入 API KEY")
             st.stop()
 
         provider = FugleProvider(api_key)
@@ -91,108 +100,119 @@ try:
 
     else:
         engine = SimulationEngine(mode=sim_mode, base_price=100)
-
-        quote = engine.generate(
-            st.session_state.tick,
-            300
-        )
-
+        quote = engine.generate(st.session_state.tick, sim_minutes * 60)
         st.session_state.tick += 1
 
 except Exception as e:
-    st.error(f"資料錯誤: {e}")
+    st.error(f"資料錯誤：{e}")
     st.stop()
 
-name = quote["name"]
-price = quote["price"]
-vwap = quote["vwap"]
+name = quote.get("name", "UNKNOWN")
+price = float(quote.get("price", 0))
+vwap = float(quote.get("vwap", price))
 volume = quote.get("last_size", 0)
 
-bids = quote.get("bids", [])
-asks = quote.get("asks", [])
+bids = quote.get("bids") or []
+asks = quote.get("asks") or []
 
-trade = quote.get("trade", {})
+trade = quote.get("trade") or {}
 trade_serial = trade.get("serial", 0)
 
-# 👉 換股票自動清空（核心修復）
-if st.session_state.get("last_symbol") != stock_code:
-    reset_state()
-    st.session_state.last_symbol = stock_code
-    st.rerun()
+is_close = quote.get("is_close", False)
 
-st.title(f"🏦 {name} {stock_code}")
 
-st.subheader("📈 券商級走勢圖")
+market_open = 9 <= now.hour <= 13
 
-fig = ChartBuilder.build_price_chart(
-    st.session_state.price_history,
-    st.session_state.volume_history
-)
+if market_open and not is_close:
 
-st.plotly_chart(
-    fig,
-    use_container_width=True,
-    height=520  # ✔ 防止被切
-)
+    if (len(st.session_state.price_history) == 0
+        or st.session_state.last_trade != trade_serial):
 
-ema5 = MarketAnalyzer.calculate_ema(st.session_state.price_history, 5)
-ema20 = MarketAnalyzer.calculate_ema(st.session_state.price_history, 20)
-rsi = MarketAnalyzer.calculate_rsi(st.session_state.price_history)
+        st.session_state.last_trade = trade_serial
 
-total_bid = sum(x["size"] for x in bids)
-total_ask = sum(x["size"] for x in asks)
+        st.session_state.price_history.append(price)
+        st.session_state.volume_history.append(volume)
+
+
+# 保護：避免 NaN 導致圖空白
+prices = [p for p in st.session_state.price_history if p is not None]
+volumes = [v for v in st.session_state.volume_history if v is not None]
+
+prices = prices[-300:]
+volumes = volumes[-300:]
+
+ema5 = MarketAnalyzer.calculate_ema(prices, 5)
+ema20 = MarketAnalyzer.calculate_ema(prices, 20)
+ema60 = MarketAnalyzer.calculate_ema(prices, 60)
+
+rsi = MarketAnalyzer.calculate_rsi(prices)
+macd, macd_signal, macd_hist = MarketAnalyzer.calculate_macd(prices)
+
+momentum = MarketAnalyzer.momentum(prices)
+volatility = MarketAnalyzer.volatility(prices)
+
+total_bid = sum(x.get("size", 0) for x in bids)
+total_ask = sum(x.get("size", 0) for x in asks)
 
 bid_ratio = total_bid / max(total_ask, 1)
 
-# =========================
-# 進出場訊號（新增）
-# =========================
+ai_score = 50
 
-if ema5 > ema20 and rsi < 70:
-    signal = "BUY"
-elif ema5 < ema20 and rsi > 30:
-    signal = "SELL"
+if price > vwap:
+    ai_score += 10
 else:
-    signal = "HOLD"
+    ai_score -= 10
+
+if ema5 > ema20:
+    ai_score += 10
+else:
+    ai_score -= 10
+
+if rsi < 30:
+    ai_score += 10
+elif rsi > 70:
+    ai_score -= 10
+
+if macd > macd_signal:
+    ai_score += 10
+else:
+    ai_score -= 10
+
+if bid_ratio > 1.5:
+    ai_score += 15
+else:
+    ai_score -= 10
+
+ai_score = max(0, min(100, int(ai_score)))
+
 
 # =========================
-# 主力雷達（新增）
+# 反轉區（修正你說的「消失問題」）
 # =========================
 
-flow = total_bid - total_ask
-
-if flow > 0:
-    radar = "🔴 主力進場"
-elif flow < 0:
-    radar = "🟢 主力出場"
+if ema5 > ema20 and rsi < 40:
+    reversal = "BUY"
+elif ema5 < ema20 and rsi > 60:
+    reversal = "SELL"
 else:
-    radar = "🟡 觀望"
+    reversal = "WATCH"
 
-col1, col2, col3 = st.columns(3)
+st.title(f"{name} ({stock_code})")
 
-with col1:
-    st.metric("現價", price)
+st.subheader("📈 即時走勢")
 
-with col2:
-    st.metric("VWAP", vwap)
-
-with col3:
-    st.metric("RSI", rsi)
-
-st.subheader("🔄 反轉雷達")
-
-if signal == "BUY":
-    st.success("📈 多方進場訊號")
-elif signal == "SELL":
-    st.error("📉 空方轉弱訊號")
+# 🔥 修復：空資料不畫圖
+if len(prices) > 1:
+    fig = ChartBuilder.build_price_chart(prices, volumes)
+    st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("⚖️ 盤整中")
+    st.info("等待資料中...")
 
-st.subheader("📡 主力雷達")
+st.subheader("🔄 反轉區")
 
-st.write(radar)
-
-st.progress(
-    min(abs(flow) / (total_bid + total_ask + 1), 1)
-)
-
+if reversal == "BUY":
+    st.success("📈 可能反彈（短多訊號）")
+elif reversal == "SELL":
+    st.error("📉 可能轉弱（短空訊號）")
+else:
+    st.info("⚖️ 盤整觀望")
