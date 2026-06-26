@@ -17,14 +17,7 @@ refresh = st.sidebar.slider("更新頻率(秒)", 1, 10, 2)
 # =========================
 # 股票名稱（標題只顯示這個）
 # =========================
-name_map = {
-    "2330": "台積電",
-    "2317": "鴻海",
-    "2454": "聯發科",
-    "3481": "群創"
-}
-
-stock_name = name_map.get(stock, stock)
+stock_name = d.get("name") or f"{stock}（未知標的）"
 
 # =========================
 # session state
