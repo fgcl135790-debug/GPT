@@ -1,7 +1,7 @@
 import requests
 import json
 
-API_KEY = "YjQyNmRlNTUtMjJhNC00Y2Q5LWI0NjYtMDFhYjUzYjQ1ZWRlIGIyNzEwYTVkLTU5NTAtNDk1MC1iYzlkLWUyMGY5M2JiMmZkZQ"
+API_KEY = "請貼上你的真正Fugle Key（不要空白不要換行）"
 SYMBOL = "2330"
 
 def test_api():
