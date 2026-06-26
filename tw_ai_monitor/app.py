@@ -1,24 +1,44 @@
 import streamlit as st
 import requests
+import time
 
 # =========================
-# Page config
+# Page
 # =========================
 st.set_page_config(layout="wide")
 
 # =========================
-# Sidebar
+# State
+# =========================
+if "running" not in st.session_state:
+    st.session_state.running = True
+
+# =========================
+# Sidebar（控制台）
 # =========================
 st.sidebar.title("⚙️ 控制台")
 
 api_key = st.sidebar.text_input("Fugle API Key", type="password")
 symbol = st.sidebar.text_input("股票代碼", "2330")
+
 refresh_sec = st.sidebar.slider("更新頻率（秒）", 1, 10, 2)
+
+st.sidebar.markdown("---")
+st.sidebar.write(f"⏱️ 目前更新頻率：{refresh_sec} 秒")
+
+if st.sidebar.button("停止更新"):
+    st.session_state.running = False
+
+if st.sidebar.button("開始更新"):
+    st.session_state.running = True
+
+st.sidebar.write("狀態：", "ON" if st.session_state.running else "OFF")
+
 
 # =========================
 # API
 # =========================
-def fetch_data():
+def fetch():
     if not api_key:
         return None
 
@@ -27,13 +47,15 @@ def fetch_data():
 
     try:
         r = requests.get(url, headers=headers, timeout=10)
-        return r.json() if r.status_code == 200 else None
+        if r.status_code != 200:
+            return None
+        return r.json()
     except:
         return None
 
 
 # =========================
-# 台股顏色（正確）
+# 台股顏色
 # =========================
 def color(change):
     return "#e53935" if change > 0 else "#00c853"
@@ -47,15 +69,12 @@ def status(change):
 # =========================
 placeholder = st.empty()
 
-data = fetch_data()
+data = fetch()
 
 if not data:
-    st.warning("請輸入 API KEY 或確認連線")
+    st.warning("請輸入 API KEY 或確認 API")
     st.stop()
 
-# =========================
-# 解析資料
-# =========================
 name = data.get("name", symbol)
 price = data["lastPrice"]
 change = data["change"]
@@ -65,12 +84,13 @@ bids = data["bids"]
 asks = data["asks"]
 total = data["total"]
 
+
 # =========================
-# render
+# Render
 # =========================
 with placeholder.container():
 
-    # ===== 上方資訊（已修正）=====
+    # ===== 上方價格區（已修 unsafe HTML）=====
     st.markdown(
         f"""
         <div style="padding:18px;border-radius:12px;background:#111;margin-bottom:20px">
@@ -83,7 +103,7 @@ with placeholder.container():
             </div>
 
             <div style="font-size:14px;color:#ccc">
-                {status(change)}  {change} / {pct:.2f}%
+                {status(change)} {change} / {pct:.2f}%
             </div>
         </div>
         """,
@@ -116,7 +136,7 @@ with placeholder.container():
             )
 
     # =========================
-    # 成交資訊（已修 bug）
+    # 成交資訊
     # =========================
     st.markdown("### 📦 成交資訊")
 
@@ -125,3 +145,11 @@ with placeholder.container():
     c1.metric("成交金額", f"{total['tradeValue']:,}")
     c2.metric("成交張數", f"{total['tradeVolume']:,}")
     c3.metric("成交筆數", f"{total['transaction']:,}")
+
+
+# =========================
+# Auto refresh（關鍵）
+# =========================
+if st.session_state.running:
+    time.sleep(refresh_sec)
+    st.rerun()
