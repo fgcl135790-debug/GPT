@@ -3,26 +3,32 @@ import json
 
 def get_snapshot(api_key, symbol):
 
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
+    # 🔥 強制兩種 symbol 試
+    symbols = [symbol, f"{symbol}.TW"]
 
-    headers = {
-        "X-API-KEY": api_key
-    }
+    for s in symbols:
 
-    r = requests.get(url, headers=headers)
+        url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{s}"
 
-    print("\n===== API DEBUG START =====")
-    print("STATUS:", r.status_code)
-    print("TEXT:", r.text)
+        headers = {
+            "X-API-KEY": api_key
+        }
 
-    try:
-        data = r.json()
-        print("JSON:\n", json.dumps(data, indent=2, ensure_ascii=False))
-    except Exception as e:
-        print("JSON PARSE ERROR:", e)
-        data = None
+        r = requests.get(url, headers=headers)
 
-    print("===== API DEBUG END =====\n")
+        print("\n======================")
+        print("TRY SYMBOL:", s)
+        print("STATUS:", r.status_code)
+        print("TEXT:", r.text[:300])
 
-    # ❗先不要做任何解析
+        try:
+            data = r.json()
+            print("JSON:", json.dumps(data, indent=2, ensure_ascii=False))
+        except:
+            data = None
+
+        # 如果成功就回傳
+        if r.status_code == 200 and data:
+            return data, None
+
     return None, None
