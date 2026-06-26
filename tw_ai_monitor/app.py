@@ -1,100 +1,109 @@
 import streamlit as st
 import requests
+import pandas as pd
 
-st.set_page_config(page_title="TW AI Monitor v3 Stable", layout="wide")
-
-st.title("TW AI Monitor v3 Stable")
-
-# =========================
-# INPUT
-# =========================
-api_key = st.text_input("Fugle API Key", type="password")
-symbol = st.text_input("股票代碼", value="2330")
+st.set_page_config(page_title="TW AI Monitor", layout="wide")
 
 # =========================
-# CLEAN KEY
+# API FUNCTION
 # =========================
-def clean_key(key):
-    return str(key).strip().replace("\n", "").replace("\r", "").replace(" ", "")
-
-# =========================
-# API CALL
-# =========================
-def get_snapshot(api_key, symbol):
+def fetch_fugle(api_key: str, symbol: str):
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
 
     headers = {
-        "X-API-KEY": clean_key(api_key)
+        "X-API-KEY": str(api_key).strip()
     }
 
-    try:
-        res = requests.get(url, headers=headers, timeout=10)
-        data = res.json()
+    res = requests.get(url, headers=headers, timeout=10)
+    data = res.json()
+    return data
 
-        return data
 
-    except Exception as e:
-        st.error("API request failed")
-        st.write(e)
-        return None
+# =========================
+# UI
+# =========================
+st.title("TW AI Monitor v3 Stable")
+
+api_key = st.text_input("Fugle API Key", type="password")
+symbol = st.text_input("股票代碼", value="2330")
+
+start = st.button("開始監控")
+
 
 # =========================
 # MAIN
 # =========================
-if st.button("開始監控"):
+if start and api_key and symbol:
 
-    if not api_key:
-        st.warning("請輸入 API Key")
-        st.stop()
+    data = fetch_fugle(api_key, symbol)
 
-    data = get_snapshot(api_key, symbol)
-
-    if not data:
-        st.error("沒有回傳資料")
-        st.stop()
-
-    # =========================
-    # PRICE
-    # =========================
-    price = data.get("lastPrice")
-    change = data.get("change")
-    change_percent = data.get("changePercent")
-
-    st.subheader(f"{data.get('name')} ({symbol})")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("價格", price)
-
-    with col2:
-        st.metric("漲跌", change)
-
-    with col3:
-        st.metric("漲跌幅", change_percent)
-
-    # =========================
-    # ORDER BOOK
-    # =========================
-    st.subheader("五檔報價")
+    # -------- safe extract --------
+    name = data.get("name", symbol)
+    last_price = data.get("lastPrice", 0)
+    change = data.get("change", 0)
+    change_percent = data.get("changePercent", 0)
 
     bids = data.get("bids", [])
     asks = data.get("asks", [])
 
+    total = data.get("total", {})
+    volume = total.get("tradeVolume", 0)
+    value = total.get("tradeValue", 0)
+
+    # =========================
+    # HEADER
+    # =========================
+    st.subheader(f"{name} ({symbol})")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("價格", last_price)
+    col2.metric("漲跌", change)
+    col3.metric("漲跌幅", f"{change_percent}%")
+
+
+    # =========================
+    # EXTRA STATS (like your 2nd image)
+    # =========================
+    st.markdown("## 交易資訊")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("成交量", volume)
+    col2.metric("成交金額", value)
+    col3.metric("均價", data.get("avgPrice", 0))
+
+
+    # =========================
+    # ORDER BOOK
+    # =========================
+    st.markdown("## 五檔報價")
+
+    bid_df = pd.DataFrame(bids)
+    ask_df = pd.DataFrame(asks)
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.write("買方")
-        for b in bids:
-            st.write(f"{b['price']} | {b['size']}")
+        st.markdown("### 買方")
+        if not bid_df.empty:
+            st.dataframe(bid_df.rename(columns={"price": "價格", "size": "張數"}))
+        else:
+            st.write("無資料")
 
     with col2:
-        st.write("賣方")
-        for a in asks:
-            st.write(f"{a['price']} | {a['size']}")
+        st.markdown("### 賣方")
+        if not ask_df.empty:
+            st.dataframe(ask_df.rename(columns={"price": "價格", "size": "張數"}))
+        else:
+            st.write("無資料")
+
 
     # =========================
-    # RAW DATA
+    # RAW DATA (debug)
     # =========================
     with st.expander("RAW JSON"):
         st.json(data)
+
+else:
+    st.info("輸入 API Key + 股票代碼，然後按「開始監控」")
