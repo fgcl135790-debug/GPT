@@ -17,7 +17,7 @@ refresh = st.sidebar.slider("更新頻率(秒)", 1, 10, 2)
 # =========================
 # 股票名稱（標題只顯示這個）
 # =========================
-stock_name = d.get("name") or f"{stock}（未知標的）"
+stock_name = d.get("name", stock)
 
 # =========================
 # session state
