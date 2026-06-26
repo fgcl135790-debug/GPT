@@ -2,25 +2,39 @@ import streamlit as st
 import requests
 import time
 
-st.set_page_config(page_title="TW AI Monitor v3.1", layout="wide")
+st.set_page_config(page_title="TW Monitor", layout="wide")
 
-# ================= STYLE =================
+# ================= CSS（仿三竹風格） =================
 st.markdown("""
 <style>
-.big { font-size: 44px; font-weight: 700; }
+.big {
+    font-size: 46px;
+    font-weight: 800;
+}
+
 .up { color: #e74c3c; }   /* 台股紅 */
 .down { color: #2ecc71; } /* 台股綠 */
 
 .card {
-    padding: 16px;
-    border-radius: 14px;
     background: #111;
+    padding: 18px;
+    border-radius: 14px;
     margin-bottom: 12px;
 }
 
-.title {
-    font-size: 22px;
+.bid {
+    color: #2ecc71;
     font-weight: 600;
+}
+
+.ask {
+    color: #e74c3c;
+    font-weight: 600;
+}
+
+.small {
+    opacity: 0.8;
+    font-size: 13px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -32,23 +46,26 @@ with st.sidebar:
 
     api_key = st.text_input("Fugle API Key", type="password")
     symbol = st.text_input("股票代碼", value="2330")
-    refresh = st.slider("更新頻率(秒)", 1, 10, 2)
+    refresh = st.slider("更新頻率", 1, 10, 2)
 
-    st.divider()
-    st.write("Auto Refresh：ON")
+    st.write("Auto Refresh: ON")
 
 
 # ================= API =================
-def get_data(symbol, key):
+def fetch(symbol, key):
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
     headers = {"X-API-KEY": key}
-    r = requests.get(url, headers=headers, timeout=10)
-    return r.json()
+    return requests.get(url, headers=headers, timeout=10).json()
+
+
+# ================= FORMAT =================
+def format_num(n):
+    if n >= 10000:
+        return f"{n/10000:.1f}萬"
+    return f"{n:,}"
 
 
 # ================= MAIN =================
-st.title(f"📊 台股看盤系統 {symbol}")
-
 placeholder = st.empty()
 
 while True:
@@ -59,53 +76,64 @@ while True:
         continue
 
     try:
-        data = get_data(symbol, api_key)
+        d = fetch(symbol, api_key)
 
-        price = data["lastPrice"]
-        change = data["change"]
-        pct = data["changePercent"]
+        price = d["lastPrice"]
+        change = d["change"]
+        pct = d["changePercent"]
 
         up = change >= 0
         color = "up" if up else "down"
-        status = "📈 上漲" if up else "📉 下跌" if change < 0 else "⚪ 盤整"
+        status = "📈 上漲" if change > 0 else "📉 下跌" if change < 0 else "⚪ 盤整"
 
         with placeholder.container():
 
-            # ====== 股票資訊 ======
+            # ================= 股票資訊（移除標題） =================
             st.markdown(f"""
             <div class="card">
-                <div class="title">{data['name']} ({symbol})</div>
+                <div style="font-size:18px;">{d['name']} ({symbol})</div>
                 <div>{status}</div>
                 <div class="big {color}">{price}</div>
-                <div>漲跌：{change} / {pct}%</div>
+                <div>漲跌 {change} / {pct}%</div>
             </div>
             """, unsafe_allow_html=True)
 
             col1, col2 = st.columns(2)
 
-            # ====== 五檔 ======
+            # ================= 買方（仿三竹） =================
             with col1:
-                st.subheader("📉 買方")
-                bids = data.get("bids", [])[:5]
-                for b in bids:
-                    st.write(f"{b['price']} | {b['size']}")
+                st.subheader("🟢 買方")
 
+                for i, b in enumerate(d.get("bids", [])[:5]):
+
+                    price_cls = "bid"
+                    st.markdown(
+                        f"{b['price']} <span class='{price_cls}'>| {format_num(b['size'])}</span>",
+                        unsafe_allow_html=True
+                    )
+
+            # ================= 賣方 =================
             with col2:
-                st.subheader("📈 賣方")
-                asks = data.get("asks", [])[:5]
-                for a in asks:
-                    st.write(f"{a['price']} | {a['size']}")
+                st.subheader("🔴 賣方")
 
-            # ====== 成交量（修正重點） ======
-            total = data.get("total", {})
+                for i, a in enumerate(d.get("asks", [])[:5]):
+
+                    price_cls = "ask"
+                    st.markdown(
+                        f"{a['price']} <span class='{price_cls}'>| {format_num(a['size'])}</span>",
+                        unsafe_allow_html=True
+                    )
+
+            # ================= 成交資訊（修正重點） =================
+            t = d.get("total", {})
 
             st.markdown("### 📦 成交資訊")
 
-            col3, col4, col5 = st.columns(3)
+            c1, c2, c3 = st.columns(3)
 
-            col3.metric("成交金額", f"{total.get('tradeValue',0):,}")
-            col4.metric("成交量", f"{total.get('tradeVolume',0):,}")
-            col5.metric("成交筆數", f"{total.get('transaction',0):,}")
+            c1.metric("成交金額", format_num(t.get("tradeValue", 0)))
+            c2.metric("成交張數", format_num(t.get("tradeVolume", 0)))
+            c3.metric("成交筆數", format_num(t.get("transaction", 0)))
 
     except Exception as e:
         st.error(e)
