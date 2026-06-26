@@ -1,117 +1,161 @@
 import streamlit as st
 import requests
-import time
+import pandas as pd
 
-# ================= UI =================
-st.set_page_config(layout="wide", page_title="台股 AI 監控 V6.2")
+# =====================
+# CONFIG
+# =====================
+st.set_page_config(layout="wide", page_title="AI 看盤 V7")
 
-st.title("📊 台股 AI 即時監控 V6.2（Fugle 原生修正版）")
+FUGLE_URL = "https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote"
 
-api_key = st.text_input("API KEY", type="password")
-stock = st.text_input("股票代碼", "2330")
-refresh_sec = st.slider("更新頻率(秒)", 1, 10, 2)
-
-
-# ================= API =================
-def get_quote(stock_id):
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{stock_id}"
+# =====================
+# API
+# =====================
+def get_quote(stock, api_key):
     headers = {"X-API-KEY": api_key}
+    r = requests.get(f"{FUGLE_URL}/{stock}", headers=headers)
+    data = r.json()
 
-    r = requests.get(url, headers=headers)
-
+    # === SAFE PARSE（避免你之前 KeyError）===
     try:
-        data = r.json()
+        d = data["data"]
     except:
-        return {"error": "API 非 JSON"}
-
-    # ❌ API錯誤
-    if "error" in data:
-        return {"error": data["error"]}
-
-    # ===============================
-    # ⭐ Fugle 新格式：直接就是 root
-    # ===============================
-    quote = data
+        return None
 
     return {
-        "name": quote.get("name"),
-        "price": quote.get("lastPrice"),
-        "change": quote.get("change"),
-        "changePercent": quote.get("changePercent"),
-        "volume": quote.get("total", {}).get("tradeVolume"),
-        "bid": quote.get("bids", [{}])[0].get("price") if quote.get("bids") else None,
-        "ask": quote.get("asks", [{}])[0].get("price") if quote.get("asks") else None,
-        "bids": quote.get("bids", []),
-        "asks": quote.get("asks", []),
+        "symbol": d.get("symbol"),
+        "name": d.get("name"),
+        "price": d.get("closePrice"),
+        "change": d.get("change"),
+        "changePercent": d.get("changePercent"),
+        "open": d.get("openPrice"),
+        "high": d.get("highPrice"),
+        "low": d.get("lowPrice"),
+        "volume": d.get("total").get("tradeVolume") if d.get("total") else 0,
+        "bid": d.get("orderBook", {}).get("bids", []),
+        "ask": d.get("orderBook", {}).get("asks", []),
+        "vwap": d.get("total").get("avgPrice") if d.get("total") else 0,
     }
 
+# =====================
+# AI SIGNAL ENGINE（簡化版）
+# =====================
+def ai_signal(q):
+    if not q:
+        return "無資料", 0
 
-# ================= AI 判斷 =================
-def ai_signal(price, bid, ask):
-    if price is None:
-        return "無資料", 0, "#999"
+    score = 50
 
-    if ask and price > ask:
-        return "🚀 假突破偏多", 80, "#00c853"
+    # VWAP logic
+    if q["price"] > q["vwap"]:
+        score += 15
+    else:
+        score -= 15
 
-    if bid and price < bid:
-        return "📉 跌破偏空", 80, "#ff5252"
+    # momentum
+    if q["change"] > 0:
+        score += 10
+    else:
+        score -= 10
 
-    return "⚖️ 盤整（觀望）", 50, "#ffc107"
+    if score >= 65:
+        return "📈 偏多", score
+    elif score <= 35:
+        return "📉 偏空", score
+    else:
+        return "⚖️ 盤整", score
 
+# =====================
+# UI STYLE（關鍵）
+# =====================
+st.markdown("""
+<style>
+/* 左側控制台 */
+section[data-testid="stSidebar"] {
+    background-color:#0e1117;
+}
 
-# ================= MAIN =================
-if api_key:
+/* 卡片 */
+.card {
+    background:#161b22;
+    padding:16px;
+    border-radius:12px;
+    margin-bottom:12px;
+}
 
-    q = get_quote(stock)
+/* 五檔表 */
+.book {
+    display:flex;
+    justify-content:space-between;
+}
 
-    if "error" in q:
-        st.error(q["error"])
-        st.stop()
+/* 買賣顏色 */
+.buy {color:#00d084;}
+.sell {color:#ff4d4d;}
+</style>
+""", unsafe_allow_html=True)
 
-    signal, score, color = ai_signal(q["price"], q["bid"], q["ask"])
+# =====================
+# SIDEBAR
+# =====================
+with st.sidebar:
+    st.title("⚙️ 控制台")
 
-    # ====== 上方資訊 ======
-    st.markdown(f"""
-    <div style="padding:20px;border-radius:12px;background:#111;">
-        <div style="font-size:18px;color:#aaa;">
-            {q['name']} ({stock})
+    api = st.text_input("API KEY", type="password")
+    stock = st.text_input("股票代碼", "2330")
+    refresh = st.slider("更新秒數", 1, 10, 2)
+
+# =====================
+# MAIN
+# =====================
+st.title(f"⚡ {stock} AI 即時監控 V7")
+
+if api:
+    q = get_quote(stock, api)
+
+    if q:
+
+        signal, score = ai_signal(q)
+
+        # ===== TOP CARD =====
+        st.markdown(f"""
+        <div class="card">
+            <h2>{q['name']} ({q['symbol']})</h2>
+            <h1 style="color:#00ff99">{q['price']}</h1>
+            <p>漲跌: {q['change']} ({q['changePercent']}%)</p>
         </div>
+        """, unsafe_allow_html=True)
 
-        <div style="font-size:52px;font-weight:800;color:{color}">
-            {q['price']}
+        # ===== SIGNAL =====
+        st.markdown(f"""
+        <div class="card">
+            <h3>AI 當沖判斷</h3>
+            <h2>{signal}</h2>
+            <p>Score: {score}</p>
         </div>
+        """, unsafe_allow_html=True)
 
-        <div style="color:#ccc">
-            漲跌：{q['change']} ({q['changePercent']}%)
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        # ===== ORDER BOOK（三竹風格）=====
+        col1, col2 = st.columns(2)
 
-    # ====== 五檔（簡化專業版） ======
-    col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🟢 買方")
+            for b in q["bid"][:5]:
+                st.markdown(f"<div class='buy'>{b['price']} | {b['size']}</div>", unsafe_allow_html=True)
 
-    with col1:
-        st.subheader("🟢 買方")
-        for b in q["bids"][:5]:
-            st.write(f"{b['price']} | {b['size']}")
+        with col2:
+            st.subheader("🔴 賣方")
+            for a in q["ask"][:5]:
+                st.markdown(f"<div class='sell'>{a['price']} | {a['size']}</div>", unsafe_allow_html=True)
 
-    with col2:
-        st.subheader("🔴 賣方")
-        for a in q["asks"][:5]:
-            st.write(f"{a['price']} | {a['size']}")
+        # ===== STATS =====
+        st.markdown("### 📊 成交資訊")
+        c1, c2, c3 = st.columns(3)
 
-    # ====== AI 訊號 ======
-    st.subheader("🧠 AI 當沖判斷")
-    st.markdown(f"## {signal}")
-    st.progress(score / 100)
-
-    # ====== 成交量 ======
-    st.metric("成交量", q["volume"])
-
-    # ====== 自動刷新 ======
-    time.sleep(refresh_sec)
-    st.rerun()
+        c1.metric("VWAP", q["vwap"])
+        c2.metric("成交量", q["volume"])
+        c3.metric("現價", q["price"])
 
 else:
     st.warning("請輸入 API KEY")
