@@ -1,24 +1,35 @@
 import requests
+import pandas as pd
 
-class FugleREST:
+def get_snapshot(api_key, symbol):
 
-    def __init__(self, api_key):
-        self.api_key = api_key
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
 
-    def get_price(self, symbol):
+    headers = {
+        "X-API-KEY": api_key
+    }
 
-        url = f"https://api.fugle.tw/marketdata/v1.0/stock/quote/{symbol}"
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        data = res.json()
 
-        headers = {
-            "X-API-KEY": self.api_key
-        }
+        # ======================
+        # 防呆（避免 KeyError）
+        # ======================
+        if "data" not in data:
+            return None, None
 
-        try:
-            res = requests.get(url, headers=headers)
-            data = res.json()
+        quote = data["data"].get("quote", {})
+        price = quote.get("tradePrice", None)
 
-            return data["data"]["quote"]["tradePrice"]
+        # 模擬 K 線（因為 free API 沒 full OHLC）
+        df = pd.DataFrame({
+            "close": [price] if price else [],
+            "volume": [0]
+        })
 
-        except Exception as e:
-            print("REST error:", e)
-            return None
+        return df, price
+
+    except Exception as e:
+        print("REST ERROR:", e)
+        return None, None
