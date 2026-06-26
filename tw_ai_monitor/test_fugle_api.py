@@ -1,45 +1,33 @@
 import requests
 import json
-import re
 
-API_KEY = "你的FUGLE_KEY"
+API_KEY = "請貼上你的真正Fugle Key（不要空白不要換行）"
 SYMBOL = "2330"
 
-
-def clean_key(key: str) -> str:
-    # 1. 去掉空白/換行
-    key = str(key).strip()
-
-    # 2. 去掉所有不可見字元
-    key = key.replace("\n", "").replace("\r", "").replace("\t", "")
-
-    # 3. 只保留 ASCII（最重要）
-    key = re.sub(r"[^\x20-\x7E]", "", key)
-
-    return key
-
-
 def test_api():
-    api_key = clean_key(API_KEY)
+    api_key = str(API_KEY).strip()   # 防止 hidden whitespace
+    symbol = str(SYMBOL).strip()
 
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{SYMBOL}"
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
 
     headers = {
         "X-API-KEY": api_key
     }
 
-    print("KEY repr:", repr(api_key))
-    print("KEY len:", len(api_key))
+    print("API KEY repr:", repr(api_key))
+    print("API KEY length:", len(api_key))
 
     try:
         res = requests.get(url, headers=headers, timeout=10)
 
-        print("STATUS:", res.status_code)
-        print("RAW:", res.text[:1000])
+        print("\nSTATUS:", res.status_code)
+        print("\nRAW:", res.text[:500])
 
         try:
             data = res.json()
-            print("JSON:", json.dumps(data, indent=2, ensure_ascii=False)[:2000])
+            print("\nJSON KEYS:", list(data.keys()) if isinstance(data, dict) else type(data))
+            print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
+
         except Exception as e:
             print("JSON ERROR:", e)
 
