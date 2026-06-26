@@ -14,13 +14,12 @@ class FugleWS:
 
     def start(self):
 
-        url = f"wss://api.fugle.tw/realtime/v0.3/stocks?apiKey={self.api_key}"
+        url = "wss://api.fugle.tw/marketdata/v1.0/stock/streaming"
 
         self.ws = WebSocketApp(
             url,
             on_open=self.on_open,
             on_message=self.on_message,
-            on_error=self.on_error
         )
 
         t = threading.Thread(target=self.ws.run_forever)
@@ -30,14 +29,22 @@ class FugleWS:
     def on_open(self, ws):
         print("WS connected")
 
-        msg = {
-            "op": "subscribe",
-            "channel": "trades",
-            "symbol": self.symbol
-        }
+        # 1. auth
+        ws.send(json.dumps({
+            "event": "auth",
+            "data": {
+                "apikey": self.api_key
+            }
+        }))
 
-        ws.send(json.dumps(msg))
-        print("subscribe sent:", msg)
+        # 2. subscribe
+        ws.send(json.dumps({
+            "event": "subscribe",
+            "data": {
+                "channel": "trades",
+                "symbol": self.symbol
+            }
+        }))
 
     def on_message(self, ws, message):
 
@@ -45,17 +52,14 @@ class FugleWS:
 
         data = json.loads(message)
 
-        trade = data.get("data") or {}
+        payload = data.get("data", {})
 
-        price = trade.get("price")
-
+        price = payload.get("lastPrice")
         if price is None:
             return
 
         self.price = price
         self.prices.append(price)
 
-        self.volumes.append(trade.get("volume", 1))
-
-    def on_error(self, ws, error):
-        print("WS ERROR:", error)
+        vol = payload.get("lastSize", 1)
+        self.volumes.append(vol)
