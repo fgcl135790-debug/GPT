@@ -1,31 +1,26 @@
 import json
 import threading
-import time
 from websocket import WebSocketApp
-
 
 class FugleWS:
 
     def __init__(self, api_key, symbol):
+
         self.api_key = api_key
         self.symbol = symbol
 
         self.prices = []
         self.volumes = []
-        self.price = 0
-
-        # 🧠 用來判斷 WS 有沒有活著
-        self.last_update = 0
+        self.price = None
 
     def start(self):
 
-        url = "wss://api.fugle.tw/realtime/v1/channel"
+        url = "wss://api.fugle.tw/streaming"
 
         self.ws = WebSocketApp(
             url,
             on_open=self.on_open,
-            on_message=self.on_message,
-            on_error=self.on_error
+            on_message=self.on_message
         )
 
         t = threading.Thread(target=self.ws.run_forever)
@@ -35,43 +30,35 @@ class FugleWS:
     def on_open(self, ws):
         print("WS connected")
 
-        # 👉 auth
-        ws.send(json.dumps({
-            "event": "auth",
-            "data": {
-                "apikey": self.api_key
-            }
-        }))
+        msg = {
+            "action": "subscribe",
+            "symbols": [self.symbol],
+            "token": self.api_key
+        }
 
-        # 👉 subscribe
-        ws.send(json.dumps({
-            "event": "subscribe",
-            "data": {
-                "channel": "trades",
-                "symbol": self.symbol
-            }
-        }))
+        ws.send(json.dumps(msg))
 
     def on_message(self, ws, message):
 
-        print("RAW:", message)
+        try:
+            data = json.loads(message)
+            print("WS RAW:", data)
 
-        data = json.loads(message)
+            # 🔥 多種 fallback key（Fugle 很亂）
+            price = (
+                data.get("lastPrice") or
+                data.get("price") or
+                data.get("tradePrice")
+            )
 
-        trade = data.get("data", {})
+            if price is None:
+                return
 
-        price = trade.get("price")
-        volume = trade.get("size", 1)
+            self.price = float(price)
+            self.prices.append(self.price)
 
-        if price is None:
-            return
+            vol = data.get("volume") or 1
+            self.volumes.append(vol)
 
-        self.price = price
-        self.prices.append(price)
-        self.volumes.append(volume)
-
-        # 🧠 更新時間（判斷 WS 活性）
-        self.last_update = time.time()
-
-    def on_error(self, ws, error):
-        print("WS ERROR:", error)
+        except Exception as e:
+            print("WS ERROR:", e)
