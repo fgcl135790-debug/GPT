@@ -1,1 +1,6 @@
-
+streamlit
+websocket-client
+pandas
+numpy
+requests
+plotly
