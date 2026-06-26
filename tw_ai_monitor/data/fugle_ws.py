@@ -10,17 +10,17 @@ class FugleWS:
 
         self.prices = []
         self.volumes = []
-
         self.price = 0
 
     def start(self):
 
-        url = f"wss://api.fugle.tw/streaming"
+        url = f"wss://api.fugle.tw/realtime/v0.3/stocks?apiKey={self.api_key}"
 
         self.ws = WebSocketApp(
             url,
+            on_open=self.on_open,
             on_message=self.on_message,
-            on_open=self.on_open
+            on_error=self.on_error
         )
 
         t = threading.Thread(target=self.ws.run_forever)
@@ -30,29 +30,32 @@ class FugleWS:
     def on_open(self, ws):
         print("WS connected")
 
-        subscribe_msg = {
+        msg = {
             "action": "subscribe",
-            "symbols": [self.symbol],
-            "token": self.api_key
+            "channel": "trades",
+            "symbol": self.symbol
         }
 
-        ws.send(json.dumps(subscribe_msg))
+        ws.send(json.dumps(msg))
 
     def on_message(self, ws, message):
 
-        print("RAW MESSAGE:", message)
+        print("RAW:", message)
 
         data = json.loads(message)
 
-        print("RAW:", data)  # 🔥 你一定要看到這個
+        # Fugle 常見格式
+        trade = data.get("data", {})
 
-        price = data.get("lastPrice") or data.get("price")
+        price = trade.get("price")
+        volume = trade.get("volume", 1)
 
-        if not price:
+        if price is None:
             return
 
         self.price = price
         self.prices.append(price)
+        self.volumes.append(volume)
 
-        vol = data.get("volume", 1)
-        self.volumes.append(vol)
+    def on_error(self, ws, error):
+        print("WS error:", error)
