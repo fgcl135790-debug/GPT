@@ -12,27 +12,36 @@ symbol = st.text_input("股票代碼", value="2330")
 
 if st.button("開始監控"):
 
-    if not api_key:
-        st.error("請輸入 API Key")
+    # =========================
+    # 🔥 安全初始化（重點）
+    # =========================
+    df = None
+    price = None
+
+    # =========================
+    # REST 抓資料
+    # =========================
+    try:
+        df, price = get_snapshot(api_key, symbol)
+    except Exception as e:
+        st.error(f"API 例外錯誤: {e}")
         st.stop()
 
-    # ======================
-    # REST 抓資料
-    # ======================
-    df, price = get_snapshot(api_key, symbol)
+    # =========================
+    # 🔥 防炸核心（修 NameError）
+    # =========================
+    if df is None or len(df) == 0:
+        st.error("無法取得資料（REST失敗 or API無回應）")
+        st.stop()
 
-if df is None or len(df) == 0:
-    st.error("無法取得資料（請看 terminal log）")
-    st.stop()
-
-    # ======================
-    # AI 分數
-    # ======================
+    # =========================
+    # AI
+    # =========================
     signal, score_val = score(df)
 
-    # ======================
-    # UI
-    # ======================
     ws = type("obj", (), {"price": price})
 
+    # =========================
+    # UI
+    # =========================
     run_dashboard(df, signal, score_val, ws)
