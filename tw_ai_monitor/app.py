@@ -2,12 +2,12 @@ import streamlit as st
 import time
 
 from data.fugle_ws import FugleWS
-from core.engine import Engine
-from ai.signal import SignalEngine
+from core.engine_v2 import EngineV2
+from ai.signal_v2 import SignalV2
 
 st.set_page_config(layout="wide")
 
-st.title("🇹🇼 台股 AI 監控系統 v1")
+st.title("🇹🇼 台股 AI 監控 v2（專業版）")
 
 api_key = st.text_input("Fugle API Key", type="password")
 symbol = st.text_input("股票代碼", "2330")
@@ -17,23 +17,24 @@ if st.button("開始監控"):
     ws = FugleWS(api_key, symbol)
     ws.start()
 
-    engine = Engine()
-    ai = SignalEngine()
+    engine = EngineV2()
+    ai = SignalV2()
 
     chart = st.empty()
-    info = st.empty()
+    panel = st.empty()
 
     while True:
 
-        if len(ws.prices) < 10:
+        if len(ws.prices) < 20:
             time.sleep(1)
             continue
 
-        df = engine.build(ws.prices)
+        df = engine.build(ws.prices, ws.volumes)
 
-        signal, score = ai.get_signal(df)
+        signal, score = ai.score(df)
 
-        with info.container():
+        with panel.container():
+
             col1, col2, col3 = st.columns(3)
 
             col1.metric("即時價格", ws.price)
@@ -41,6 +42,6 @@ if st.button("開始監控"):
             col3.metric("強度", f"{score}/100")
 
         with chart.container():
-            st.line_chart(df["close"])
+            st.line_chart(df[["close", "vwap"]])
 
         time.sleep(1)
