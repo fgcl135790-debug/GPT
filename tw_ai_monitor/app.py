@@ -4,7 +4,7 @@ import time
 from data.fugle_ws import FugleWS
 from core.engine_v2 import EngineV2
 from ai.signal_v2 import SignalV2
-from ui.dashboard_v2 import run_dashboard   # ⚠️ 你現在用 v3 但沒檔案
+from ui.dashboard_v3 import run_dashboard   # ⚠️ 你現在用 v3 但沒檔案
 
 st.set_page_config(layout="wide")
 
