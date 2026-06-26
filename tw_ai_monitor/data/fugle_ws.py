@@ -1,6 +1,8 @@
 import json
 import threading
+import time
 from websocket import WebSocketApp
+
 
 class FugleWS:
 
@@ -11,6 +13,9 @@ class FugleWS:
         self.prices = []
         self.volumes = []
         self.price = 0
+
+        # 🧠 用來判斷 WS 有沒有活著
+        self.last_update = 0
 
     def start(self):
 
@@ -30,31 +35,33 @@ class FugleWS:
     def on_open(self, ws):
         print("WS connected")
 
-        msg = {
-            "action": "subscribe",
-            "channel": "trade",
-            "symbols": [f"{self.symbol}.TW"],
-            "token": self.api_key
-        }
+        # 👉 auth
+        ws.send(json.dumps({
+            "event": "auth",
+            "data": {
+                "apikey": self.api_key
+            }
+        }))
 
-        ws.send(json.dumps(msg))
+        # 👉 subscribe
+        ws.send(json.dumps({
+            "event": "subscribe",
+            "data": {
+                "channel": "trades",
+                "symbol": self.symbol
+            }
+        }))
 
     def on_message(self, ws, message):
-
-        print("MESSAGE:", message)
 
         print("RAW:", message)
 
         data = json.loads(message)
 
-        # Fugle real format
-        if "data" not in data:
-            return
+        trade = data.get("data", {})
 
-        tick = data["data"]
-
-        price = tick.get("price")
-        volume = tick.get("size", 1)
+        price = trade.get("price")
+        volume = trade.get("size", 1)
 
         if price is None:
             return
@@ -62,6 +69,9 @@ class FugleWS:
         self.price = price
         self.prices.append(price)
         self.volumes.append(volume)
+
+        # 🧠 更新時間（判斷 WS 活性）
+        self.last_update = time.time()
 
     def on_error(self, ws, error):
         print("WS ERROR:", error)
