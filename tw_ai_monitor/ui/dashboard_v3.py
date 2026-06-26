@@ -15,12 +15,12 @@ def run_dashboard(df, signal, score, ws):
         name="Price"
     ))
 
-    if "ema5" in df:
+    if "ema5" in df.columns:
         fig.add_trace(go.Scatter(y=df["ema5"], name="EMA5"))
         fig.add_trace(go.Scatter(y=df["ema20"], name="EMA20"))
         fig.add_trace(go.Scatter(y=df["ema60"], name="EMA60"))
 
-    if "vwap" in df:
+    if "vwap" in df.columns:
         fig.add_trace(go.Scatter(y=df["vwap"], name="VWAP"))
 
     st.plotly_chart(fig, use_container_width=True)
