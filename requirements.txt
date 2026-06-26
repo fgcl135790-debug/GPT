@@ -4,3 +4,7 @@ numpy
 plotly==6.8.0
 fugle-marketdata==2.4.1
 streamlit-autorefresh
+streamlit
+yfinance
+pandas
+numpy
