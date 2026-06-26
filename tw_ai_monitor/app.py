@@ -1,48 +1,76 @@
 import streamlit as st
-from data.fugle_rest import get_snapshot
-from ai.signal_v2 import score as ai_score
+import requests
+import pandas as pd
 
-st.set_page_config(page_title="TW AI Monitor v3 Stable", layout="wide")
+st.set_page_config(page_title="Fugle Debug Tool")
 
-st.title("TW AI Monitor v3 Stable")
+st.title("Fugle API Debug Console")
 
+# =========================
+# INPUT
+# =========================
 api_key = st.text_input("Fugle API Key", type="password")
-symbol = st.text_input("股票代碼", value="2330")
+symbol = st.text_input("Stock Symbol", value="2330")
 
-df = None
-price = None
-signal = "WAIT"
-score_val = 0
+# =========================
+# CLEAN KEY
+# =========================
+def clean_key(key):
+    if not key:
+        return ""
+    return str(key).strip().replace("\n", "").replace("\r", "").replace(" ", "")
 
-if st.button("開始監控"):
+# =========================
+# FETCH API
+# =========================
+def fetch_data(api_key, symbol):
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
 
-    df, price = get_snapshot(api_key, symbol)
+    headers = {
+        "X-API-KEY": clean_key(api_key)
+    }
 
-    # 🚨 1. API 失敗直接擋掉
-    if df is None:
-        st.error("❌ 無法取得資料（df = None）")
+    st.write("DEBUG URL:", url)
+    st.write("DEBUG KEY repr:", repr(headers["X-API-KEY"]))
+
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+
+        st.write("STATUS CODE:", res.status_code)
+        st.write("RAW TEXT (first 500 chars):")
+        st.code(res.text[:500])
+
+        try:
+            data = res.json()
+        except Exception as e:
+            st.error("JSON parse failed")
+            st.write(e)
+            return None
+
+        return data
+
+    except Exception as e:
+        st.error("Request failed")
+        st.write(e)
+        return None
+
+# =========================
+# MAIN
+# =========================
+if st.button("TEST API"):
+    if not api_key:
+        st.warning("Please input API key")
         st.stop()
 
-    if len(df) == 0:
-        st.error("❌ df 是空的")
+    data = fetch_data(api_key, symbol)
+
+    if data is None:
+        st.error("No data returned")
         st.stop()
 
-    # 🤖 AI 計算
-    signal, score_val = ai_score(df)
+    st.subheader("JSON KEYS")
+    if isinstance(data, dict):
+        st.write(list(data.keys()))
 
-    # ======================
-    # UI 顯示區（安全版）
-    # ======================
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("價格", price if price else "N/A")
-    col2.metric("訊號", signal)
-    col3.metric("強度", f"{score_val}/100")
-
-    st.divider()
-
-    # 📊 dataframe（🔥關鍵修復）
-    if df is not None and len(df) > 0:
-        st.dataframe(df.tail(10))
-    else:
-        st.warning("沒有資料可顯示")
+    st.subheader("RAW JSON")
+    st.json(data)
