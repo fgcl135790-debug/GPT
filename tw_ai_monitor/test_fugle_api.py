@@ -1,30 +1,24 @@
 import requests
 import json
+import re
 
-# =========================
-# 🔥 你只要改這一行
-# =========================
-API_KEY = "請貼你的Fugle API KEY"
-
+API_KEY = "你的Fugle API KEY"
 SYMBOL = "2330"
 
 
-def clean_key(key):
-    if key is None:
-        return ""
-    return str(key).strip()
+def clean_key(key: str) -> str:
+    """
+    只保留 ASCII + 去掉換行/空白
+    避免 urllib3 latin-1 encode crash
+    """
+    key = str(key).strip()
+    key = key.replace("\n", "").replace("\r", "").replace(" ", "")
+    key = re.sub(r"[^\x20-\x7E]", "", key)  # 只留可見 ASCII
+    return key
 
 
 def test_api():
-
     api_key = clean_key(API_KEY)
-
-    # =========================
-    # 🧨 防呆：API KEY 空值直接停止
-    # =========================
-    if not api_key:
-        print("❌ API KEY 是空的，請先填入")
-        return
 
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{SYMBOL}"
 
@@ -32,36 +26,32 @@ def test_api():
         "X-API-KEY": api_key
     }
 
-    print("🔑 API KEY repr:", repr(api_key))
-    print("🔑 API KEY length:", len(api_key))
+    print("===== DEBUG INFO =====")
+    print("API KEY repr:", repr(api_key))
+    print("API KEY length:", len(api_key))
+    print("URL:", url)
+    print("======================")
 
     try:
         res = requests.get(url, headers=headers, timeout=10)
 
-        print("\n====================")
         print("STATUS:", res.status_code)
-        print("====================")
-
-        print("\nRAW RESPONSE:")
-        print(res.text[:800])
+        print("RAW TEXT:", res.text[:1000])
 
         try:
             data = res.json()
+            print("\nJSON TYPE:", type(data))
 
-            print("\n====================")
-            print("JSON TYPE:", type(data))
-            print("====================")
+            if isinstance(data, dict):
+                print("JSON KEYS:", list(data.keys()))
 
             print(json.dumps(data, indent=2, ensure_ascii=False)[:2000])
 
-            if isinstance(data, dict):
-                print("\nTOP KEYS:", list(data.keys()))
-
         except Exception as e:
-            print("❌ JSON PARSE ERROR:", e)
+            print("JSON PARSE ERROR:", e)
 
     except Exception as e:
-        print("❌ REQUEST ERROR:", e)
+        print("REQUEST ERROR:", e)
 
 
 if __name__ == "__main__":
