@@ -17,18 +17,43 @@ def fetch_data(api_key, symbol):
 
 
 # =========================
-# SIMPLE INDICATORS (mock)
+# INDICATORS (mock)
 # =========================
 def calc_indicators(price):
-    ema5 = price
-    ema20 = price * 0.999
-    ema60 = price * 0.998
-    vwap = price * 1.002
-    return ema5, ema20, ema60, vwap
+    return price, price * 0.999, price * 0.998, price * 1.002
 
 
 # =========================
-# TAIWAN COLOR LOGIC
+# SIDEBAR UI
+# =========================
+with st.sidebar:
+    st.title("⚙ 控制面板")
+
+    api_key = st.text_input("Fugle API Key", type="password")
+    symbol = st.text_input("股票代碼", value="2330")
+
+    refresh_sec = st.slider(
+        "更新速度（秒）",
+        min_value=1,
+        max_value=10,
+        value=3
+    )
+
+    run = st.button("🚀 開始監控")
+
+    auto = st.checkbox("Auto Refresh")
+
+
+# =========================
+# AUTO REFRESH
+# =========================
+if auto:
+    time.sleep(refresh_sec)
+    st.rerun()
+
+
+# =========================
+# MAIN
 # =========================
 def tw_color(change):
     if change > 0:
@@ -39,37 +64,6 @@ def tw_color(change):
         return "⚪ 平盤"
 
 
-# =========================
-# UI
-# =========================
-st.title("⚡ TW AI Monitor v3 PRO (TW Style)")
-
-api_key = st.text_input("Fugle API Key", type="password")
-symbol = st.text_input("股票代碼", value="2330")
-
-colA, colB, colC = st.columns([1, 1, 2])
-
-with colA:
-    run = st.button("🚀 開始監控")
-
-with colB:
-    auto = st.checkbox("Auto Refresh (3s)")
-
-with colC:
-    st.caption("台股配色版本：紅漲綠跌")
-
-
-# =========================
-# AUTO REFRESH
-# =========================
-if auto:
-    time.sleep(3)
-    st.rerun()
-
-
-# =========================
-# MAIN
-# =========================
 if run and api_key and symbol:
 
     data = fetch_data(api_key, symbol)
@@ -91,24 +85,12 @@ if run and api_key and symbol:
     # HEADER
     # =========================
     st.markdown(f"## ⚡ {name} ({symbol})")
+    st.markdown("### 狀態：" + tw_color(change))
 
     c1, c2, c3 = st.columns(3)
-
-    # 台股顏色邏輯（重點）
     c1.metric("價格", price)
-
-    if change > 0:
-        c2.metric("漲跌", change, delta_color="inverse")  # red up
-        c3.metric("漲跌幅", f"{change_pct}%", delta_color="inverse")
-    elif change < 0:
-        c2.metric("漲跌", change, delta_color="normal")  # green down
-        c3.metric("漲跌幅", f"{change_pct}%", delta_color="normal")
-    else:
-        c2.metric("漲跌", change)
-        c3.metric("漲跌幅", f"{change_pct}%")
-
-
-    st.markdown("### 📌 狀態：" + tw_color(change))
+    c2.metric("漲跌", change)
+    c3.metric("漲跌幅", f"{change_pct}%")
 
 
     # =========================
@@ -117,7 +99,6 @@ if run and api_key and symbol:
     st.markdown("## 📊 技術指標")
 
     c1, c2, c3, c4 = st.columns(4)
-
     c1.metric("VWAP", round(vwap, 2))
     c2.metric("EMA5", round(ema5, 2))
     c3.metric("EMA20", round(ema20, 2))
@@ -141,16 +122,16 @@ if run and api_key and symbol:
     with col1:
         st.markdown("### 🟢 買方")
         if bids:
-            df_b = pd.DataFrame(bids)
-            st.dataframe(df_b.rename(columns={"price": "價格", "size": "張數"}))
+            df = pd.DataFrame(bids)
+            st.dataframe(df.rename(columns={"price": "價格", "size": "張數"}))
         else:
             st.write("No data")
 
     with col2:
         st.markdown("### 🔴 賣方")
         if asks:
-            df_a = pd.DataFrame(asks)
-            st.dataframe(df_a.rename(columns={"price": "價格", "size": "張數"}))
+            df = pd.DataFrame(asks)
+            st.dataframe(df.rename(columns={"price": "價格", "size": "張數"}))
         else:
             st.write("No data")
 
@@ -161,11 +142,11 @@ if run and api_key and symbol:
     st.markdown("## 🤖 AI 判斷")
 
     if change > 0:
-        st.success("🔴 台股偏多（上漲動能）")
+        st.success("🔴 偏多（上漲動能）")
     elif change < 0:
-        st.error("🟢 台股偏空（下跌壓力）")
+        st.error("🟢 偏空（下跌壓力）")
     else:
-        st.warning("⚪ 盤整狀態")
+        st.warning("⚪ 盤整")
 
 
     # =========================
@@ -175,4 +156,4 @@ if run and api_key and symbol:
         st.json(data)
 
 else:
-    st.info("請輸入 API Key 並按開始監控")
+    st.info("請在左側輸入 API Key + 股票代碼")
