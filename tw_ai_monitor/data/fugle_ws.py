@@ -1,48 +1,21 @@
-import websocket
-import json
-import threading
+def on_message(self, ws, message):
+    data = json.loads(message)
 
-class FugleWS:
+    try:
+        # 🔥 先印出來 debug（超重要）
+        print(data)
 
-    def __init__(self, api_key, symbol):
-        self.api_key = api_key
-        self.symbol = symbol
+        # 👉 Fugle 常見是直接 flat
+        price = data.get("lastPrice")
 
-        self.prices = []
-        self.volumes = []
-        self.price = None
+        if price is None:
+            return
 
-    def on_message(self, ws, message):
-        data = json.loads(message)
+        self.price = price
+        self.prices.append(price)
 
-        try:
-            d = data["data"]
+        vol = data.get("volume", 1)
+        self.volumes.append(vol)
 
-            self.price = d["lastPrice"]
-            self.prices.append(d["lastPrice"])
-            self.volumes.append(d.get("volume", 1))
-
-        except:
-            pass
-
-    def on_open(self, ws):
-        ws.send(json.dumps({
-            "action": "subscribe",
-            "type": "trade",
-            "symbol": self.symbol
-        }))
-
-    def start(self):
-
-        url = "wss://api.fugle.tw/marketdata/v1.0/streaming"
-
-        ws = websocket.WebSocketApp(
-            url,
-            header=[f"X-API-KEY: {self.api_key}"],
-            on_message=self.on_message,
-            on_open=self.on_open
-        )
-
-        thread = threading.Thread(target=ws.run_forever)
-        thread.daemon = True
-        thread.start()
+    except Exception as e:
+        print("WS error:", e)
