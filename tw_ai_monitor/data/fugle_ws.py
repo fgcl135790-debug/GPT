@@ -41,6 +41,8 @@ class FugleWS:
 
     def on_message(self, ws, message):
 
+        print("MESSAGE:", message)
+
         print("RAW:", message)
 
         data = json.loads(message)
