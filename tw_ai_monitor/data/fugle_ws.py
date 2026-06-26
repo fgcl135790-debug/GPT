@@ -31,12 +31,13 @@ class FugleWS:
         print("WS connected")
 
         msg = {
-            "action": "subscribe",
+            "op": "subscribe",
             "channel": "trades",
             "symbol": self.symbol
         }
 
         ws.send(json.dumps(msg))
+        print("subscribe sent:", msg)
 
     def on_message(self, ws, message):
 
@@ -44,18 +45,17 @@ class FugleWS:
 
         data = json.loads(message)
 
-        # Fugle 常見格式
-        trade = data.get("data", {})
+        trade = data.get("data") or {}
 
         price = trade.get("price")
-        volume = trade.get("volume", 1)
 
         if price is None:
             return
 
         self.price = price
         self.prices.append(price)
-        self.volumes.append(volume)
+
+        self.volumes.append(trade.get("volume", 1))
 
     def on_error(self, ws, error):
-        print("WS error:", error)
+        print("WS ERROR:", error)
