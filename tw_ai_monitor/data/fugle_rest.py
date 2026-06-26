@@ -1,42 +1,31 @@
 import requests
 
+BASE_URL = "https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote"
 
-class FugleREST:
+def get_price(symbol: str, api_key: str):
 
-    def __init__(self, api_key):
-        self.api_key = api_key
+    url = f"{BASE_URL}?symbolId={symbol}"
 
-    def get_price(self, symbol):
+    headers = {
+        "X-API-KEY": api_key
+    }
 
-        url = f"https://api.fugle.tw/marketdata/v1.0/stock/quote/{symbol}"
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        data = res.json()
 
-        headers = {
-            "X-API-KEY": self.api_key
-        }
+        # 🔥 debug（一定要保留）
+        print("REST RAW:", data)
 
-        r = requests.get(url, headers=headers)
-
-        try:
-            data = r.json()
-
-            # 🔥 debug（一定要先看一次）
-            print("REST RAW:", data)
-
-            # ======================
-            # 🧠 Fugle 常見結構修正
-            # ======================
-
-            # 有些版本是這個
-            if "data" in data:
-                return data["data"]["quote"]["tradePrice"]
-
-            # 有些版本是直接 quote
-            if "quote" in data:
-                return data["quote"]["tradePrice"]
-
-            # fallback
+        # ❗防 error response
+        if "data" not in data:
             return None
 
-        except Exception as e:
-            print("REST error:", e)
-            return None
+        quote = data["data"].get("quote", {})
+        price = quote.get("tradePrice")
+
+        return price
+
+    except Exception as e:
+        print("REST ERROR:", e)
+        return None
