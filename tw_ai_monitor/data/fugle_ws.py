@@ -19,3 +19,4 @@ def on_message(self, ws, message):
 
     except Exception as e:
         print("WS error:", e)
+print(message)
