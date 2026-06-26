@@ -1,156 +1,115 @@
 import streamlit as st
 import requests
-import pandas as pd
 import time
+import json
 
-st.set_page_config(page_title="TW AI Monitor PRO", layout="wide")
+st.set_page_config(page_title="TW AI Monitor v3", layout="wide")
 
-
-# =========================
-# FETCH DATA
-# =========================
-def fetch_data(api_key, symbol):
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
-    headers = {"X-API-KEY": str(api_key).strip()}
-    res = requests.get(url, headers=headers, timeout=10)
-    return res.json()
-
-
-# =========================
-# INDICATORS (mock)
-# =========================
-def calc_indicators(price):
-    return price, price * 0.999, price * 0.998, price * 1.002
+# ========== STYLE（台股紅漲綠跌） ==========
+st.markdown("""
+<style>
+.big-price { font-size: 42px; font-weight: 700; }
+.up { color: #E74C3C; }   /* 紅 */
+.down { color: #2ECC71; } /* 綠 */
+.box {
+    padding: 16px;
+    border-radius: 12px;
+    background-color: #111;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
-# =========================
-# TAIWAN COLOR RULE
-# =========================
-def tw_color(change):
-    if change > 0:
-        return "🔴 上漲"
-    elif change < 0:
-        return "🟢 下跌"
-    else:
-        return "⚪ 平盤"
+# ========== SESSION STATE ==========
+if "running" not in st.session_state:
+    st.session_state.running = True
+
+if "data" not in st.session_state:
+    st.session_state.data = None
 
 
-# =========================
-# SIDEBAR (FIXED AUTO MODE)
-# =========================
+# ========== SIDEBAR ==========
 with st.sidebar:
-    st.title("⚙ 控制面板")
+    st.title("⚙️ 控制台")
 
     api_key = st.text_input("Fugle API Key", type="password")
+
     symbol = st.text_input("股票代碼", value="2330")
 
-    refresh_sec = st.slider("更新頻率（秒）", 1, 10, 3)
+    refresh_sec = st.slider("更新頻率（秒）", 1, 10, 2)
 
-    st.markdown("---")
-    st.markdown(f"### ⏱ 目前更新頻率")
-    st.markdown(f"## {refresh_sec} 秒 / 次")
+    st.divider()
 
-    run = st.button("🚀 開始監控（自動更新）")
+    st.write("狀態")
+    st.write("Auto Refresh：ON")
+
+    if st.button("停止更新"):
+        st.session_state.running = False
+
+    if st.button("開始更新"):
+        st.session_state.running = True
 
 
-# =========================
-# PLACEHOLDER (no flicker zone)
-# =========================
+# ========== API ==========
+def fetch(symbol, api_key):
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
+    headers = {"X-API-KEY": api_key}
+
+    r = requests.get(url, headers=headers, timeout=10)
+    return r.json()
+
+
+# ========== UI ==========
+st.title(f"📊 台股看盤系統 {symbol}")
+
 placeholder = st.empty()
 
 
-# =========================
-# MAIN LOOP (NO FLICKER)
-# =========================
-if run and api_key and symbol:
+# ========== LOOP ==========
+while st.session_state.running:
 
-    while True:
+    if not api_key:
+        st.warning("請輸入 API KEY")
+        time.sleep(1)
+        continue
 
-        data = fetch_data(api_key, symbol)
+    try:
+        data = fetch(symbol, api_key)
+        st.session_state.data = data
 
-        name = data.get("name", symbol)
         price = data.get("lastPrice", 0)
         change = data.get("change", 0)
         change_pct = data.get("changePercent", 0)
 
-        bids = data.get("bids", [])
-        asks = data.get("asks", [])
-
-        total = data.get("total", {})
-        volume = total.get("tradeVolume", 0)
-
-        ema5, ema20, ema60, vwap = calc_indicators(price)
+        color_class = "up" if change >= 0 else "down"
 
         with placeholder.container():
 
-            # =========================
-            # HEADER
-            # =========================
-            st.markdown(f"## ⚡ {name} ({symbol})")
-            st.markdown("### 狀態：" + tw_color(change))
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("價格", price)
-            c2.metric("漲跌", change)
-            c3.metric("漲跌幅", f"{change_pct}%")
-
-
-            # =========================
-            # INDICATORS
-            # =========================
-            st.markdown("## 📊 技術指標")
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("VWAP", round(vwap, 2))
-            c2.metric("EMA5", round(ema5, 2))
-            c3.metric("EMA20", round(ema20, 2))
-            c4.metric("EMA60", round(ema60, 2))
-
-
-            # =========================
-            # VOLUME
-            # =========================
-            st.markdown("## 📦 成交量")
-            st.bar_chart([volume])
-
-
-            # =========================
-            # ORDER BOOK
-            # =========================
-            st.markdown("## 📘 五檔報價")
+            # ====== 價格 ======
+            st.markdown(f"""
+            <div class="box">
+                <div style="font-size:24px;">{data.get('name','')}</div>
+                <div class="big-price {color_class}">{price}</div>
+                <div>漲跌：{change} / {change_pct}%</div>
+            </div>
+            """, unsafe_allow_html=True)
 
             col1, col2 = st.columns(2)
 
             with col1:
-                st.markdown("### 🟢 買方")
-                if bids:
-                    df = pd.DataFrame(bids)
-                    st.dataframe(df.rename(columns={"price": "價格", "size": "張數"}))
-                else:
-                    st.write("No data")
+                st.subheader("📉 買方")
+                for b in data.get("bids", [])[:5]:
+                    st.write(f"{b['price']} | {b['size']}")
 
             with col2:
-                st.markdown("### 🔴 賣方")
-                if asks:
-                    df = pd.DataFrame(asks)
-                    st.dataframe(df.rename(columns={"price": "價格", "size": "張數"}))
-                else:
-                    st.write("No data")
+                st.subheader("📈 賣方")
+                for a in data.get("asks", [])[:5]:
+                    st.write(f"{a['price']} | {a['size']}")
 
+            st.subheader("📦 成交量")
+            st.write(data.get("total", {}))
 
-            # =========================
-            # AI SIGNAL
-            # =========================
-            st.markdown("## 🤖 AI 判斷")
+    except Exception as e:
+        st.error(f"API error: {e}")
 
-            if change > 0:
-                st.success("🔴 偏多（上漲動能）")
-            elif change < 0:
-                st.error("🟢 偏空（下跌壓力）")
-            else:
-                st.warning("⚪ 盤整")
-
-        time.sleep(refresh_sec)
-
-else:
-    st.info("請輸入 API Key 並按開始監控")
+    time.sleep(refresh_sec)
