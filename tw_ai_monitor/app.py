@@ -1,185 +1,219 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 import numpy as np
-import datetime as dt
+import pandas as pd
 
 # =========================
-# UI CONFIG
+# PAGE CONFIG
 # =========================
-st.set_page_config(layout="wide", page_title="AI 實戰監控系統")
+st.set_page_config(
+    page_title="AI Trading V5",
+    layout="wide"
+)
 
 # =========================
-# STYLE (券商級暗色)
+# STYLE
 # =========================
 st.markdown("""
 <style>
-body {
-    background-color: #0e1117;
-    color: white;
-}
+body { background-color: #0e1117; color: white; }
 
-.block {
+.card {
     background: #151a22;
     padding: 16px;
-    border-radius: 12px;
+    border-radius: 14px;
     margin-bottom: 12px;
 }
 
-.title {
-    font-size: 26px;
+.big {
+    font-size: 40px;
     font-weight: 800;
 }
 
-.price-up { color: #00c853; font-size: 42px; font-weight: 800; }
-.price-down { color: #ff5252; font-size: 42px; font-weight: 800; }
+.up { color: #00e676; }
+.down { color: #ff5252; }
+.wait { color: #ffd600; }
 
-.tag-long { color: #00e676; font-weight: 700; }
-.tag-short { color: #ff1744; font-weight: 700; }
-.tag-wait { color: #ffd600; font-weight: 700; }
+.title {
+    font-size: 24px;
+    font-weight: 800;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# SIDEBAR CONTROL PANEL
+# SIDEBAR
 # =========================
-st.sidebar.title("⚙️ 控制台")
+st.sidebar.title("⚙️ AI Trading V5")
 
 symbol = st.sidebar.text_input("股票代碼", "2330.TW")
-refresh = st.sidebar.slider("更新秒數", 1, 10, 2)
+risk_mode = st.sidebar.selectbox("策略模式", ["一般", "積極當沖", "保守"])
 
-start = st.sidebar.button("開始監控")
-stop = st.sidebar.button("停止")
+run = st.sidebar.button("開始分析")
 
 # =========================
 # DATA
 # =========================
-def load_data(symbol):
+@st.cache_data(ttl=5)
+def get_data(symbol):
     df = yf.download(symbol, period="1d", interval="1m")
     df = df.dropna()
     return df
 
-def vwap(df):
+def VWAP(df):
     return (df["Close"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
 
-def ema(df, n):
+def EMA(df, n):
     return df["Close"].ewm(span=n).mean()
 
 # =========================
-# SIGNAL ENGINE（核心）
+# FALSE BREAKOUT DETECTOR
 # =========================
-def signal_logic(df):
-    df["VWAP"] = vwap(df)
-    df["EMA5"] = ema(df, 5)
-    df["EMA20"] = ema(df, 20)
+def fake_breakout(df):
+    high = df["Close"].rolling(10).max()
+    low = df["Close"].rolling(10).min()
+
+    last = df["Close"].iloc[-1]
+
+    # 假突破上緣後跌回
+    if last < high.iloc[-2] and df["Close"].iloc[-2] > high.iloc[-3]:
+        return -1
+
+    # 假跌破後拉回
+    if last > low.iloc[-2] and df["Close"].iloc[-2] < low.iloc[-3]:
+        return 1
+
+    return 0
+
+# =========================
+# AI ENGINE V5
+# =========================
+def ai_engine(df):
+
+    df["VWAP"] = VWAP(df)
+    df["EMA5"] = EMA(df, 5)
+    df["EMA20"] = EMA(df, 20)
+    df["EMA60"] = EMA(df, 60)
 
     last = df.iloc[-1]
 
     score = 0
 
-    # VWAP
+    # 1. VWAP（核心）
     if last["Close"] > last["VWAP"]:
-        score += 25
+        score += 30
     else:
-        score -= 25
+        score -= 30
 
-    # EMA trend
-    if last["EMA5"] > last["EMA20"]:
-        score += 25
-    else:
-        score -= 25
+    # 2. 趨勢
+    if last["EMA5"] > last["EMA20"] > last["EMA60"]:
+        score += 30
+    elif last["EMA5"] < last["EMA20"] < last["EMA60"]:
+        score -= 30
 
-    # momentum
-    if df["Close"].iloc[-1] > df["Close"].iloc[-3]:
+    # 3. momentum
+    if df["Close"].iloc[-1] > df["Close"].iloc[-5]:
         score += 10
     else:
         score -= 10
 
-    # decision
-    if score >= 30:
+    # 4. 假突破
+    fb = fake_breakout(df)
+    score += fb * 25
+
+    # =========================
+    # SIGNAL LOGIC
+    # =========================
+    if score >= 40:
         signal = "📈 做多"
-    elif score <= -30:
+        action = "回踩 VWAP 做多"
+    elif score <= -40:
         signal = "📉 做空"
+        action = "反彈放空"
     else:
         signal = "⏸ 觀望"
+        action = "等待假突破或趨勢確認"
 
-    return df, score, signal
+    # =========================
+    # RISK ZONE
+    # =========================
+    price = last["Close"]
+    vwap = last["VWAP"]
 
-# =========================
-# MAIN PANEL
-# =========================
-st.markdown("## ⚡ AI 實戰交易監控系統（專業版）")
+    stop_loss = vwap * 0.995
+    take_profit = vwap * 1.01
 
-df = load_data(symbol)
-df, score, signal = signal_logic(df)
-
-last_price = df["Close"].iloc[-1]
-
-# =========================
-# TOP INFO CARD
-# =========================
-col1, col2, col3 = st.columns([2,2,2])
-
-with col1:
-    st.markdown("### 股票")
-    st.markdown(f"## {symbol}")
-
-with col2:
-    color = "price-up" if score > 0 else "price-down"
-    st.markdown(f'<div class="{color}">{round(last_price,2)}</div>', unsafe_allow_html=True)
-
-with col3:
-    st.markdown("### 訊號")
-    if "做多" in signal:
-        st.markdown(f'<div class="tag-long">{signal}</div>', unsafe_allow_html=True)
-    elif "做空" in signal:
-        st.markdown(f'<div class="tag-short">{signal}</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="tag-wait">{signal}</div>', unsafe_allow_html=True)
-
-st.markdown("---")
+    return df, score, signal, action, price, vwap, stop_loss, take_profit
 
 # =========================
-# CHART AREA
+# RUN
 # =========================
-st.markdown("### 📊 價格 / VWAP / 均線")
+if run:
 
-chart_df = df.copy()
-chart_df = chart_df[["Close"]]
-st.line_chart(chart_df)
+    df = get_data(symbol)
+    df, score, signal, action, price, vwap, sl, tp = ai_engine(df)
 
-# =========================
-# AI SCORE PANEL
-# =========================
-col1, col2, col3 = st.columns(3)
+    # =========================
+    # HEADER
+    # =========================
+    st.markdown("## ⚡ AI Trading V5（實戰監控版）")
 
-with col1:
-    st.markdown("### VWAP")
-    st.write(round(df["VWAP"].iloc[-1], 2))
+    col1, col2, col3 = st.columns(3)
 
-with col2:
-    st.markdown("### EMA5")
-    st.write(round(df["EMA5"].iloc[-1], 2))
+    with col1:
+        st.markdown("### 價格")
+        st.markdown(f"<div class='big'>{round(price,2)}</div>", unsafe_allow_html=True)
 
-with col3:
-    st.markdown("### EMA20")
-    st.write(round(df["EMA20"].iloc[-1], 2))
+    with col2:
+        st.markdown("### VWAP")
+        st.markdown(f"<div class='big'>{round(vwap,2)}</div>", unsafe_allow_html=True)
 
-st.markdown("---")
+    with col3:
+        if score > 0:
+            st.markdown(f"<div class='big up'>{signal}</div>", unsafe_allow_html=True)
+        elif score < 0:
+            st.markdown(f"<div class='big down'>{signal}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='big wait'>{signal}</div>", unsafe_allow_html=True)
 
-# =========================
-# AI DECISION PANEL（重點）
-# =========================
-st.markdown("## 🧠 AI 當沖判斷核心")
+    # =========================
+    # CHART
+    # =========================
+    st.markdown("## 📊 即時價格")
+    st.line_chart(df["Close"])
 
-if score > 30:
-    st.success(f"偏多格局（Score: {score}）→ 以回踩做多為主")
-elif score < -30:
-    st.error(f"偏空格局（Score: {score}）→ 以反彈放空為主")
-else:
-    st.warning(f"盤整區（Score: {score}）→ 不建議追價")
+    # =========================
+    # AI DECISION
+    # =========================
+    st.markdown("## 🧠 AI 判斷引擎")
 
-# =========================
-# FOOTER
-# =========================
-st.caption("AI Monitor v2 | VWAP + EMA + Momentum Engine")
+    st.write("📌 判斷理由：", action)
+    st.write("📊 Score：", score)
+
+    # =========================
+    # RISK CONTROL
+    # =========================
+    st.markdown("## 🛑 風控區")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.error(f"停損區：{round(sl,2)}")
+
+    with col2:
+        st.success(f"停利區：{round(tp,2)}")
+
+    # =========================
+    # STRATEGY EXPLANATION
+    # =========================
+    st.markdown("## 📘 策略邏輯")
+
+    st.info("""
+    V5策略核心：
+
+    1. VWAP（主多空分界）
+    2. EMA 5/20/60 趨勢排列
+    3. Momentum（短線動能）
+    4. 假突破偵測（掃停損行情）
+    5. VWAP回歸交易模型
+    """)
