@@ -1,245 +1,198 @@
 import streamlit as st
-import requests
 import pandas as pd
-from collections import deque
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from fugle_provider import FugleProvider
+from simulation_engine import SimulationEngine
+from market_analyzer import MarketAnalyzer
+from ai_predictor import AIPredictor
+from charts import ChartBuilder
+from exporters import Exporter
+from streamlit_autorefresh import st_autorefresh
 
 # =========================
-# CONFIG
+# V4.6 券商級設定
 # =========================
-st.set_page_config(page_title="V9 Trading System", layout="wide")
 
-# =========================
-# SIDEBAR
-# =========================
-st.sidebar.title("⚙️ 控制台")
+st.set_page_config(
+    page_title="V4.6 券商級主力系統",
+    page_icon="🏦",
+    layout="wide"
+)
 
-api_key = st.sidebar.text_input("API KEY", type="password")
-stock = st.sidebar.text_input("股票代碼", "2330")
-refresh = st.sidebar.slider("更新頻率(秒)", 1, 10, 2)
-show_debug = st.sidebar.checkbox("Debug Mode", False)
+st.markdown("""
+<style>
+.block-container{
+    padding:0.4rem 0.8rem;
+    font-size: 13px;
+}
 
-# =========================
-# STATE RESET (換股票就清空)
-# =========================
-if "last_stock" not in st.session_state:
-    st.session_state.last_stock = stock
+/* 台股風格：紅漲綠跌 */
+.positive { color:#ff4d4f; }
+.negative { color:#00c853; }
 
-if st.session_state.last_stock != stock:
-    st.session_state.hist = deque(maxlen=100)
-    st.session_state.last_stock = stock
+/* 壓縮UI */
+h1 { font-size: 22px !important; }
+h2 { font-size: 18px !important; }
+h3 { font-size: 15px !important; }
+</style>
+""", unsafe_allow_html=True)
 
-if "hist" not in st.session_state:
-    st.session_state.hist = deque(maxlen=100)
+now = datetime.now(ZoneInfo("Asia/Taipei"))
 
-# =========================
-# API CALL（Fugle）
-# =========================
-def get_quote(stock, api_key):
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{stock}"
-    r = requests.get(url, headers={"X-API-KEY": api_key})
+def reset_state():
+    st.session_state.price_history = []
+    st.session_state.volume_history = []
+    st.session_state.big_order_log = []
+    st.session_state.tick = 0
+    st.session_state.last_symbol = None
+    st.session_state.last_trade_serial = None
 
-    try:
-        d = r.json()
-    except:
-        return None
 
-    if not d:
-        return None
+for k in [
+    "price_history",
+    "volume_history",
+    "big_order_log",
+    "tick",
+    "last_symbol",
+    "last_trade_serial"
+]:
+    if k not in st.session_state:
+        st.session_state[k] = [] if "history" in k or "log" in k else 0
 
-    return d
+with st.sidebar:
+    st.title("⚙️ V4.6 券商控制中心")
 
-# =========================
-# NORMALIZE DATA
-# =========================
-def normalize(d):
-    return {
-        "name": d.get("name", ""),
-        "price": d.get("lastPrice") or d.get("closePrice") or 0,
-        "vwap": d.get("avgPrice") or 0,
-        "high": d.get("highPrice") or 0,
-        "low": d.get("lowPrice") or 0,
-        "bids": d.get("bids", []),
-        "asks": d.get("asks", [])
-    }
+    data_source = st.radio("資料來源", ["真實盤", "情境模擬"])
 
-# =========================
-# 主力偵測 V9
-# =========================
-def detect_institution(d):
-    bids = d["bids"][:5]
-    asks = d["asks"][:5]
+    stock_code = st.text_input("股票代號", "2330")
 
-    bid_vol = sum(x.get("size", 0) for x in bids)
-    ask_vol = sum(x.get("size", 0) for x in asks)
+    api_key = st.text_input("API Key", type="password")
 
-    imbalance = (bid_vol - ask_vol) / max(1, bid_vol + ask_vol)
+    sim_mode = st.selectbox("模擬", ["一般", "軋空", "出貨", "吸籌"])
 
-    big_buy = any(x.get("size", 0) > 800 for x in bids)
-    big_sell = any(x.get("size", 0) > 800 for x in asks)
+    refresh_sec = st.slider("更新秒數", 1, 10, 2)
 
-    return imbalance, big_buy, big_sell
+    if st.button("🔄 換股 / 重置"):
+        reset_state()
+        st.rerun()
 
-# =========================
-# 反彈判斷
-# =========================
-def detect_rebound(price, low, vwap):
-    if price <= low * 1.01:
-        return "⚠️ 可能反彈區（接近低點）"
-    if price < vwap and price > low:
-        return "🟡 弱勢反彈可能"
-    return "無反彈訊號"
+st_autorefresh(interval=refresh_sec * 1000, key="v46")
 
-# =========================
-# 信心指數
-# =========================
-def confidence(score_parts):
-    return int(sum(score_parts) / len(score_parts) * 100)
+try:
+    if data_source == "真實盤":
+        if not api_key:
+            st.warning("請輸入API")
+            st.stop()
 
-# =========================
-# V9 ENGINE
-# =========================
-def v9_engine(d):
-    price = d["price"]
-    vwap = d["vwap"]
-    high = d["high"]
-    low = d["low"]
-
-    imb, big_buy, big_sell = detect_institution(d)
-
-    score = []
-
-    # 多頭條件
-    if price > vwap:
-        score.append(0.7)
-    else:
-        score.append(0.3)
-
-    score.append((imb + 1) / 2)
-
-    if big_buy:
-        score.append(0.8)
-    else:
-        score.append(0.4)
-
-    conf = confidence(score)
-
-    if price > vwap and imb > 0.15 and big_buy:
-        signal = "📈 主力進場（多方）"
-        reason = "VWAP上 + 買盤 + 大單進場"
-        stop = vwap
-        tp = high
-
-    elif price < vwap and imb < -0.15 and big_sell:
-        signal = "📉 主力出貨（空方）"
-        reason = "VWAP下 + 賣壓 + 大單出貨"
-        stop = vwap
-        tp = low
-
-    elif big_buy:
-        signal = "⚠️ 主力吸籌"
-        reason = "大單買進"
-        stop = low
-        tp = high
+        provider = FugleProvider(api_key)
+        quote = provider.get_quote(stock_code)
 
     else:
-        signal = "⛔ 無明確訊號"
-        reason = "盤整"
-        stop = None
-        tp = None
+        engine = SimulationEngine(mode=sim_mode, base_price=100)
 
-    return signal, reason, stop, tp, imb, conf
+        quote = engine.generate(
+            st.session_state.tick,
+            300
+        )
 
-# =========================
-# RUN
-# =========================
-if not api_key:
-    st.warning("請輸入 API KEY")
+        st.session_state.tick += 1
+
+except Exception as e:
+    st.error(f"資料錯誤: {e}")
     st.stop()
 
-raw = get_quote(stock, api_key)
+name = quote["name"]
+price = quote["price"]
+vwap = quote["vwap"]
+volume = quote.get("last_size", 0)
 
-if not raw:
-    st.error("API 無回應")
-    st.stop()
+bids = quote.get("bids", [])
+asks = quote.get("asks", [])
 
-d = normalize(raw)
+trade = quote.get("trade", {})
+trade_serial = trade.get("serial", 0)
 
-# hist (走勢)
-st.session_state.hist.append(d["price"])
+# 👉 換股票自動清空（核心修復）
+if st.session_state.get("last_symbol") != stock_code:
+    reset_state()
+    st.session_state.last_symbol = stock_code
+    st.rerun()
 
-# =========================
-# TITLE（只顯示股名）
-# =========================
-title = d["name"] if d["name"] else stock
-st.title(f"⚡ {title}")
+st.title(f"🏦 {name} {stock_code}")
 
-# =========================
-# METRICS
-# =========================
-col1, col2, col3, col4 = st.columns(4)
+st.subheader("📈 券商級走勢圖")
 
-col1.metric("現價", d["price"])
-col2.metric("VWAP", d["vwap"])
-col3.metric("高點", d["high"])
-col4.metric("低點", d["low"])
+fig = ChartBuilder.build_price_chart(
+    st.session_state.price_history,
+    st.session_state.volume_history
+)
 
-# =========================
-# V9
-# =========================
-signal, reason, stop, tp, imb, conf = v9_engine(d)
+st.plotly_chart(
+    fig,
+    use_container_width=True,
+    height=520  # ✔ 防止被切
+)
 
-st.markdown("## 🤖 V9 主力交易訊號")
-st.success(signal)
-st.write("📌", reason)
+ema5 = MarketAnalyzer.calculate_ema(st.session_state.price_history, 5)
+ema20 = MarketAnalyzer.calculate_ema(st.session_state.price_history, 20)
+rsi = MarketAnalyzer.calculate_rsi(st.session_state.price_history)
 
-st.metric("信心指數", f"{conf}/100")
+total_bid = sum(x["size"] for x in bids)
+total_ask = sum(x["size"] for x in asks)
 
-# 反彈
-reb = detect_rebound(d["price"], d["low"], d["vwap"])
-st.write("🔄", reb)
-
-# 停損停利
-st.markdown("### 🛑 停損 / 停利")
-st.write("停損:", stop)
-st.write("停利:", tp)
+bid_ratio = total_bid / max(total_ask, 1)
 
 # =========================
-# 五檔（三竹風格）
+# 進出場訊號（新增）
 # =========================
-st.markdown("## 📊 五檔報價")
 
-colA, colB = st.columns(2)
-
-with colA:
-    st.markdown("### 🟢 買盤")
-    for b in d["bids"][:5]:
-        st.write(f"{b.get('price')} | {b.get('size')}")
-
-with colB:
-    st.markdown("### 🔴 賣盤")
-    for a in d["asks"][:5]:
-        st.write(f"{a.get('price')} | {a.get('size')}")
-
-# =========================
-# 主力力道
-# =========================
-st.markdown("## 📈 主力力道")
-st.progress(min(1.0, max(0.0, (imb + 1) / 2)))
-st.write("Imbalance:", round(imb, 3))
-
-# =========================
-# DEBUG
-# =========================
-if show_debug:
-    st.markdown("## 🧪 DEBUG RAW")
-    st.json(raw)
-
-# =========================
-# CHART（換股自動清空）
-# =========================
-st.markdown("## 📉 即時走勢")
-
-if len(st.session_state.hist) > 1:
-    st.line_chart(pd.DataFrame(list(st.session_state.hist), columns=[title]))
+if ema5 > ema20 and rsi < 70:
+    signal = "BUY"
+elif ema5 < ema20 and rsi > 30:
+    signal = "SELL"
 else:
-    st.write("等待資料...")
+    signal = "HOLD"
+
+# =========================
+# 主力雷達（新增）
+# =========================
+
+flow = total_bid - total_ask
+
+if flow > 0:
+    radar = "🔴 主力進場"
+elif flow < 0:
+    radar = "🟢 主力出場"
+else:
+    radar = "🟡 觀望"
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("現價", price)
+
+with col2:
+    st.metric("VWAP", vwap)
+
+with col3:
+    st.metric("RSI", rsi)
+
+st.subheader("🔄 反轉雷達")
+
+if signal == "BUY":
+    st.success("📈 多方進場訊號")
+elif signal == "SELL":
+    st.error("📉 空方轉弱訊號")
+else:
+    st.info("⚖️ 盤整中")
+
+st.subheader("📡 主力雷達")
+
+st.write(radar)
+
+st.progress(
+    min(abs(flow) / (total_bid + total_ask + 1), 1)
+)
+
