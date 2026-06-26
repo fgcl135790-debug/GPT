@@ -59,20 +59,18 @@ def get_quote(stock, api_key):
 
     raw = r.json()
 
-    # 👇 debug（一定要先開）
-    st.write("DEBUG RAW:", raw)
-
-    data = raw.get("data", {})
-    quote = data.get("quote", {})
+    st.write("DEBUG RAW:", raw)  # 保留 debug 很重要
 
     return {
-        "name": data.get("name", stock),
-        "price": quote.get("closePrice", 0),
-        "vwap": quote.get("avgPrice", 0),
-        "high": quote.get("highPrice", 0),
-        "low": quote.get("lowPrice", 0),
-        "bids": quote.get("bids", []),
-        "asks": quote.get("asks", [])
+        "name": raw.get("name", stock),
+
+        "price": raw.get("closePrice") or raw.get("lastPrice", 0),
+        "vwap": raw.get("avgPrice", 0),
+        "high": raw.get("highPrice", 0),
+        "low": raw.get("lowPrice", 0),
+
+        "bids": raw.get("bids", []),
+        "asks": raw.get("asks", [])
     }
 
 # =========================
