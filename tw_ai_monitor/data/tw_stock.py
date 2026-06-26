@@ -3,23 +3,36 @@ import pandas as pd
 
 class TWStock:
 
-    def get_data(self, stock_id, token):
+    def get_data(self, stock_id, api_key):
 
-        url = "https://api.finmindtrade.com/api/v4/data"
+        url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/candles/{stock_id}"
 
-        params = {
-            "dataset": "TaiwanStockPrice",
-            "stock_id": stock_id,
-            "token": token,
-            "limit": 100
+        headers = {
+            "X-API-KEY": api_key
         }
 
-        r = requests.get(url, params=params)
+        params = {
+            "timeframe": "1"
+        }
+
+        r = requests.get(url, headers=headers, params=params)
         result = r.json()
 
+        # 防呆
         if "data" not in result:
-            return pd.DataFrame({
-                "error": [result]
-            })
+            return pd.DataFrame({"error": [result]})
 
-        return pd.DataFrame(result["data"])
+        candles = result["data"]
+
+        df = pd.DataFrame(candles)
+
+        # Fugle 欄位統一整理
+        df = df.rename(columns={
+            "close": "close",
+            "open": "open",
+            "high": "high",
+            "low": "low",
+            "volume": "volume"
+        })
+
+        return df
