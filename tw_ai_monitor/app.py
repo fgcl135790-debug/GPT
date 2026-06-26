@@ -1,52 +1,38 @@
 import streamlit as st
-import time
-
-from data.fugle_ws import FugleWS
-from data.fugle_rest import FugleREST
+from data.fugle_rest import get_snapshot
 from ai.signal_v2 import score
 from ui.dashboard_v3 import run_dashboard
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="TW AI Monitor", layout="wide")
 
-st.title("TW AI Monitor v3 Hybrid (WS + REST)")
+st.title("TW AI Monitor v3 Stable (REST Only)")
 
 api_key = st.text_input("Fugle API Key", type="password")
-symbol = st.text_input("股票代碼", "2330")
+symbol = st.text_input("股票代碼", value="2330")
 
-start = st.button("開始監控")
+if st.button("開始監控"):
 
-if start:
+    if not api_key:
+        st.error("請輸入 API Key")
+        st.stop()
 
-    ws = FugleWS(api_key, symbol)
-    ws.start()
+    # ======================
+    # REST 抓資料
+    # ======================
+    df, price = get_snapshot(api_key, symbol)
 
-    rest = FugleREST(api_key)
+    if df is None or len(df) == 0:
+        st.error("無法取得資料（REST失敗）")
+        st.stop()
 
-    placeholder = st.empty()
+    # ======================
+    # AI 分數
+    # ======================
+    signal, score_val = score(df)
 
-    while True:
+    # ======================
+    # UI
+    # ======================
+    ws = type("obj", (), {"price": price})
 
-        if len(ws.prices) < 20:
-            time.sleep(1)
-            continue
-
-        price = ws.price if ws.price else rest.get_price(symbol)
-
-        if price is None:
-            time.sleep(1)
-            continue
-
-        prices = ws.prices
-        volumes = ws.volumes
-
-        df = {
-            "close": prices[-200:],
-            "volume": volumes[-200:] if volumes else [1] * len(prices[-200:])
-        }
-
-        signal, score_val = score(df)
-
-        with placeholder.container():
-            run_dashboard(df, signal, score_val, ws)
-
-        time.sleep(1)
+    run_dashboard(df, signal, score_val, ws)
