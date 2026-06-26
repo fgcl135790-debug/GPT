@@ -2,140 +2,152 @@ import streamlit as st
 import requests
 import time
 
-st.set_page_config(page_title="TW Monitor", layout="wide")
+# =========================
+# Page Config
+# =========================
+st.set_page_config(
+    page_title="TW Quote System",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# ================= CSS（仿三竹風格） =================
-st.markdown("""
-<style>
-.big {
-    font-size: 46px;
-    font-weight: 800;
-}
+# =========================
+# Session State
+# =========================
+if "running" not in st.session_state:
+    st.session_state.running = True
 
-.up { color: #e74c3c; }   /* 台股紅 */
-.down { color: #2ecc71; } /* 台股綠 */
+if "data" not in st.session_state:
+    st.session_state.data = None
 
-.card {
-    background: #111;
-    padding: 18px;
-    border-radius: 14px;
-    margin-bottom: 12px;
-}
+# =========================
+# Sidebar (控制台)
+# =========================
+st.sidebar.title("⚙️ 控制台")
 
-.bid {
-    color: #2ecc71;
-    font-weight: 600;
-}
+api_key = st.sidebar.text_input("Fugle API Key", type="password")
+symbol = st.sidebar.text_input("股票代碼", value="2330")
 
-.ask {
-    color: #e74c3c;
-    font-weight: 600;
-}
+refresh_sec = st.sidebar.slider("更新頻率（秒）", 1, 10, 2)
 
-.small {
-    opacity: 0.8;
-    font-size: 13px;
-}
-</style>
-""", unsafe_allow_html=True)
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    if st.button("停止更新"):
+        st.session_state.running = False
+with col2:
+    if st.button("開始更新"):
+        st.session_state.running = True
 
+st.sidebar.markdown("---")
+st.sidebar.write(f"Auto Refresh: {'ON' if st.session_state.running else 'OFF'}")
 
-# ================= SIDEBAR =================
-with st.sidebar:
-    st.title("⚙️ 控制台")
-
-    api_key = st.text_input("Fugle API Key", type="password")
-    symbol = st.text_input("股票代碼", value="2330")
-    refresh = st.slider("更新頻率", 1, 10, 2)
-
-    st.write("Auto Refresh: ON")
-
-
-# ================= API =================
-def fetch(symbol, key):
+# =========================
+# API
+# =========================
+def fetch_quote():
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
-    headers = {"X-API-KEY": key}
-    return requests.get(url, headers=headers, timeout=10).json()
-
-
-# ================= FORMAT =================
-def format_num(n):
-    if n >= 10000:
-        return f"{n/10000:.1f}萬"
-    return f"{n:,}"
-
-
-# ================= MAIN =================
-placeholder = st.empty()
-
-while True:
-
-    if not api_key:
-        st.warning("請輸入 API KEY")
-        time.sleep(1)
-        continue
+    headers = {"X-API-KEY": api_key.strip()}
 
     try:
-        d = fetch(symbol, api_key)
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+        return None
+    except:
+        return None
 
-        price = d["lastPrice"]
-        change = d["change"]
-        pct = d["changePercent"]
+# =========================
+# 台股顏色（重點修正）
+# =========================
+def tw_color(change):
+    return "#e53935" if change < 0 else "#00c853"
 
-        up = change >= 0
-        color = "up" if up else "down"
-        status = "📈 上漲" if change > 0 else "📉 下跌" if change < 0 else "⚪ 盤整"
+def tw_arrow(change):
+    return "📉 下跌" if change < 0 else "📈 上漲"
 
-        with placeholder.container():
+# =========================
+# Layout
+# =========================
+placeholder = st.empty()
 
-            # ================= 股票資訊（移除標題） =================
-            st.markdown(f"""
-            <div class="card">
-                <div style="font-size:18px;">{d['name']} ({symbol})</div>
-                <div>{status}</div>
-                <div class="big {color}">{price}</div>
-                <div>漲跌 {change} / {pct}%</div>
+# =========================
+# Main Loop
+# =========================
+while True:
+
+    if not st.session_state.running:
+        time.sleep(0.5)
+        continue
+
+    data = fetch_quote()
+    if not data:
+        st.warning("API 無資料或 KEY 錯誤")
+        time.sleep(refresh_sec)
+        continue
+
+    price = data["lastPrice"]
+    change = data["change"]
+    pct = data["changePercent"]
+
+    bids = data["bids"]
+    asks = data["asks"]
+
+    # =========================
+    # Render
+    # =========================
+    with placeholder.container():
+
+        st.markdown(f"## 📊 台股看盤系統 {symbol}")
+
+        # ===== Price =====
+        st.markdown(
+            f"""
+            <div style="padding:20px;border-radius:10px;background:#111">
+                <h2 style="color:{tw_color(change)}">{price}</h2>
+                <p>{tw_arrow(change)}　{change} / {pct:.2f}%</p>
             </div>
-            """, unsafe_allow_html=True)
+            """,
+            unsafe_allow_html=True
+        )
 
-            col1, col2 = st.columns(2)
+        st.write("")
 
-            # ================= 買方（仿三竹） =================
-            with col1:
-                st.subheader("🟢 買方")
+        # =========================
+        # 五檔（仿三竹）
+        # =========================
+        colL, colR = st.columns(2)
 
-                for i, b in enumerate(d.get("bids", [])[:5]):
+        with colL:
+            st.markdown("### 🟢 買方")
+            st.markdown("**價格　　張數**")
 
-                    price_cls = "bid"
-                    st.markdown(
-                        f"{b['price']} <span class='{price_cls}'>| {format_num(b['size'])}</span>",
-                        unsafe_allow_html=True
-                    )
+            for b in bids:
+                st.markdown(
+                    f"<span style='color:#00c853'>{b['price']}　　{b['size']}</span>",
+                    unsafe_allow_html=True
+                )
 
-            # ================= 賣方 =================
-            with col2:
-                st.subheader("🔴 賣方")
+        with colR:
+            st.markdown("### 🔴 賣方")
+            st.markdown("**張數　　價格**")
 
-                for i, a in enumerate(d.get("asks", [])[:5]):
+            for a in asks:
+                st.markdown(
+                    f"<span style='color:#e53935'>{a['size']}　　{a['price']}</span>",
+                    unsafe_allow_html=True
+                )
 
-                    price_cls = "ask"
-                    st.markdown(
-                        f"{a['price']} <span class='{price_cls}'>| {format_num(a['size'])}</span>",
-                        unsafe_allow_html=True
-                    )
+        # =========================
+        # 成交資訊（整理版）
+        # =========================
+        st.markdown("### 📦 成交資訊")
 
-            # ================= 成交資訊（修正重點） =================
-            t = d.get("total", {})
+        total = data["total"]
 
-            st.markdown("### 📦 成交資訊")
+        c1, c2, c3 = st.columns(3)
 
-            c1, c2, c3 = st.columns(3)
+        c1.metric("成交金額", f"{total['tradeValue']:,}")
+        c2.metric("成交張數", f"{total['tradeVolume']:,}")
+        c3.metric("成交筆數", f"{total['transaction']:,}")
 
-            c1.metric("成交金額", format_num(t.get("tradeValue", 0)))
-            c2.metric("成交張數", format_num(t.get("tradeVolume", 0)))
-            c3.metric("成交筆數", format_num(t.get("transaction", 0)))
-
-    except Exception as e:
-        st.error(e)
-
-    time.sleep(refresh)
+    time.sleep(refresh_sec)
