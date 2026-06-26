@@ -1,155 +1,196 @@
 import streamlit as st
 import requests
 import time
+from datetime import datetime
 
-# =========================
-# Page
-# =========================
-st.set_page_config(layout="wide")
+# ======================
+# Page Config
+# ======================
+st.set_page_config(page_title="TW Stock Monitor", layout="wide")
 
-# =========================
-# State
-# =========================
-if "running" not in st.session_state:
-    st.session_state.running = True
+# ======================
+# CSS (dark + mi-trade style)
+# ======================
+st.markdown("""
+<style>
+body {
+    background-color: #0e1117;
+}
 
-# =========================
-# Sidebar（控制台）
-# =========================
+/* card */
+.card {
+    background: #121212;
+    padding: 18px;
+    border-radius: 12px;
+}
+
+/* price up/down */
+.up {
+    color: #ff3b3b; /* 台股：漲紅 */
+    font-weight: 700;
+}
+
+.down {
+    color: #00c853; /* 台股：跌綠 */
+    font-weight: 700;
+}
+
+.gray {
+    color: #aaa;
+}
+
+/* sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #111318;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ======================
+# Sidebar Control Panel
+# ======================
 st.sidebar.title("⚙️ 控制台")
 
 api_key = st.sidebar.text_input("Fugle API Key", type="password")
-symbol = st.sidebar.text_input("股票代碼", "2330")
+symbol = st.sidebar.text_input("股票代碼", value="2330")
 
 refresh_sec = st.sidebar.slider("更新頻率（秒）", 1, 10, 2)
 
 st.sidebar.markdown("---")
-st.sidebar.write(f"⏱️ 目前更新頻率：{refresh_sec} 秒")
+status_box = st.sidebar.empty()
 
-if st.sidebar.button("停止更新"):
+start = st.sidebar.button("開始更新")
+stop = st.sidebar.button("停止更新")
+
+# session state
+if "running" not in st.session_state:
     st.session_state.running = False
 
-if st.sidebar.button("開始更新"):
+if start:
     st.session_state.running = True
 
-st.sidebar.write("狀態：", "ON" if st.session_state.running else "OFF")
+if stop:
+    st.session_state.running = False
 
+status_box.markdown(f"**狀態：** {'ON' if st.session_state.running else 'OFF'}")
+st.sidebar.markdown(f"⏱️ 目前更新頻率：**{refresh_sec} 秒**")
 
-# =========================
+# ======================
 # API
-# =========================
-def fetch():
-    if not api_key:
-        return None
-
+# ======================
+def get_quote(symbol, api_key):
     url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
-    headers = {"X-API-KEY": api_key.strip()}
+    headers = {"X-API-KEY": api_key}
+    r = requests.get(url, headers=headers)
+    return r.json()
 
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code != 200:
-            return None
-        return r.json()
-    except:
-        return None
+# ======================
+# UI containers (避免閃爍)
+# ======================
+quote_box = st.empty()
+order_box = st.empty()
+info_box = st.empty()
 
+# ======================
+# main loop
+# ======================
+if st.session_state.running:
 
-# =========================
-# 台股顏色
-# =========================
-def color(change):
-    return "#e53935" if change > 0 else "#00c853"
+    while True:
 
-def status(change):
-    return "📈 上漲" if change > 0 else "📉 下跌"
+        if not st.session_state.running:
+            break
 
+        data = get_quote(symbol, api_key)
 
-# =========================
-# UI container（避免重複）
-# =========================
-placeholder = st.empty()
+        name = data.get("name", symbol)
+        price = data.get("lastPrice", 0)
+        change = data.get("change", 0)
+        change_pct = data.get("changePercent", 0)
 
-data = fetch()
+        color_class = "up" if change > 0 else "down"
 
-if not data:
-    st.warning("請輸入 API KEY 或確認 API")
-    st.stop()
+        # ======================
+        # Top quote
+        # ======================
+        quote_box.markdown(f"""
+        <div class="card">
+            <div style="font-size:18px; color:#ccc;">⚡ {name} ({symbol})</div>
 
-name = data.get("name", symbol)
-price = data["lastPrice"]
-change = data["change"]
-pct = data["changePercent"]
-
-bids = data["bids"]
-asks = data["asks"]
-total = data["total"]
-
-
-# =========================
-# Render
-# =========================
-with placeholder.container():
-
-    # ===== 上方價格區（已修 unsafe HTML）=====
-    st.markdown(
-        f"""
-        <div style="padding:18px;border-radius:12px;background:#111;margin-bottom:20px">
-            <div style="font-size:18px;color:#aaa">
-                ⚡ {name} ({symbol})
-            </div>
-
-            <div style="font-size:48px;font-weight:700;color:{color(change)}">
+            <div style="font-size:48px; font-weight:800;" class="{color_class}">
                 {price}
             </div>
 
-            <div style="font-size:14px;color:#ccc">
-                {status(change)} {change} / {pct:.2f}%
+            <div class="gray">
+                漲跌：{change} / {change_pct:.2f}%
             </div>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        """, unsafe_allow_html=True)
 
-    # =========================
-    # 五檔
-    # =========================
-    col1, col2 = st.columns(2)
+        # ======================
+        # 五檔
+        # ======================
+        bids = data.get("bids", [])
+        asks = data.get("asks", [])
 
-    with col1:
-        st.markdown("### 🟢 買方")
-        st.markdown("價格　　張數")
+        bid_html = ""
+        ask_html = ""
 
         for b in bids:
-            st.markdown(
-                f"{b['price']}　　<span style='color:#00c853'>{b['size']}</span>",
-                unsafe_allow_html=True
-            )
-
-    with col2:
-        st.markdown("### 🔴 賣方")
-        st.markdown("張數　　價格")
+            bid_html += f"<div>{b['price']} ｜ <span class='up'>{b['size']}</span></div>"
 
         for a in asks:
-            st.markdown(
-                f"<span style='color:#e53935'>{a['size']}</span>　　{a['price']}",
-                unsafe_allow_html=True
-            )
+            ask_html += f"<div><span class='down'>{a['size']}</span> ｜ {a['price']}</div>"
 
-    # =========================
-    # 成交資訊
-    # =========================
-    st.markdown("### 📦 成交資訊")
+        order_box.markdown(f"""
+        <div style="display:flex; gap:80px;">
 
-    c1, c2, c3 = st.columns(3)
+            <div>
+                <h3>🟢 買方</h3>
+                {bid_html}
+            </div>
 
-    c1.metric("成交金額", f"{total['tradeValue']:,}")
-    c2.metric("成交張數", f"{total['tradeVolume']:,}")
-    c3.metric("成交筆數", f"{total['transaction']:,}")
+            <div>
+                <h3>🔴 賣方</h3>
+                {ask_html}
+            </div>
 
+        </div>
+        """, unsafe_allow_html=True)
 
-# =========================
-# Auto refresh（關鍵）
-# =========================
-if st.session_state.running:
-    time.sleep(refresh_sec)
-    st.rerun()
+        # ======================
+        # 成交資訊
+        # ======================
+        total = data.get("total", {})
+
+        trade_value = total.get("tradeValue", 0)
+        trade_volume = total.get("tradeVolume", 0)
+        transaction = total.get("transaction", 0)
+
+        info_box.markdown(f"""
+        <div class="card">
+            <h3>📦 成交資訊</h3>
+
+            <div style="display:flex; gap:80px;">
+                <div>
+                    成交金額<br>
+                    <b>{trade_value:,}</b>
+                </div>
+
+                <div>
+                    成交張數<br>
+                    <b>{trade_volume:,}</b>
+                </div>
+
+                <div>
+                    成交筆數<br>
+                    <b>{transaction:,}</b>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        time.sleep(refresh_sec)
+
+else:
+    st.info("請按左側「開始更新」")
