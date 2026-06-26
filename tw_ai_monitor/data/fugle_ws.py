@@ -7,16 +7,21 @@ class FugleWS:
     def __init__(self, api_key, symbol):
         self.api_key = api_key
         self.symbol = symbol
-        self.price = None
+
         self.prices = []
+        self.volumes = []
+        self.price = None
 
     def on_message(self, ws, message):
         data = json.loads(message)
 
         try:
-            price = data["data"]["lastPrice"]
-            self.price = price
-            self.prices.append(price)
+            d = data["data"]
+
+            self.price = d["lastPrice"]
+            self.prices.append(d["lastPrice"])
+            self.volumes.append(d.get("volume", 1))
+
         except:
             pass
 
