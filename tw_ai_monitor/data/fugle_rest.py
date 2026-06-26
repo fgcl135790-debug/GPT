@@ -3,7 +3,7 @@ import pandas as pd
 
 def get_snapshot(api_key, symbol):
 
-    url = f"https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/{symbol}"
+    url = f"https://api.fugle.tw/marketdata/v1.0/stock/quote/{symbol}"
 
     headers = {
         "X-API-KEY": api_key
@@ -13,18 +13,28 @@ def get_snapshot(api_key, symbol):
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
 
-        # ======================
-        # 防呆（避免 KeyError）
-        # ======================
+        # =========================
+        # 防呆 1：API 失敗
+        # =========================
+        if not isinstance(data, dict):
+            return None, None
+
         if "data" not in data:
+            print("API回傳：", data)
             return None, None
 
         quote = data["data"].get("quote", {})
-        price = quote.get("tradePrice", None)
 
-        # 模擬 K 線（因為 free API 沒 full OHLC）
+        price = quote.get("tradePrice") or quote.get("close")
+
+        if price is None:
+            return None, None
+
+        # =========================
+        # 模擬 dataframe（免費版沒K線）
+        # =========================
         df = pd.DataFrame({
-            "close": [price] if price else [],
+            "close": [price],
             "volume": [0]
         })
 
