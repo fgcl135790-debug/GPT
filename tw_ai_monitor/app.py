@@ -21,9 +21,9 @@ if st.button("開始監控"):
     # ======================
     df, price = get_snapshot(api_key, symbol)
 
-    if df is None or len(df) == 0:
-        st.error("無法取得資料（REST失敗）")
-        st.stop()
+if df is None or len(df) == 0:
+    st.error("無法取得資料（請看 terminal log）")
+    st.stop()
 
     # ======================
     # AI 分數
