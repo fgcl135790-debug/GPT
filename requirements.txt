@@ -1,10 +1,7 @@
-streamlit==1.58.0
-pandas==3.0.3
-numpy
-plotly==6.8.0
-fugle-marketdata==2.4.1
-streamlit-autorefresh
 streamlit
-yfinance
+streamlit-autorefresh
 pandas
 numpy
+plotly
+requests
+websocket-client
